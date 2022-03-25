@@ -66,7 +66,13 @@ class Main():
         def sign(x):
             return 1 if x >= 0 else -1
 
-        angle = atan(self.odom_data.posy/self.odom_data.posx)
+        angle = None
+
+        if self.odom_data.posx == 0:
+            angle = sign(self.odom_data.posy) * pi/2
+        else:
+            angle = atan(self.odom_data.posy/self.odom_data.posx)
+
         reverse = False
 
         if self.odom_data.posx >= 0:
