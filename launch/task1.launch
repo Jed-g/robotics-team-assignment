@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="team16" type="move_figure_of_eight.py" name="move_figure_of_eight_node" output="screen"/>
+</launch>
