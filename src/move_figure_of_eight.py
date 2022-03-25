@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from msilib.schema import PublishComponent
 import rospy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -9,8 +8,9 @@ from math import pi, sqrt
 
 INITIAL_DISTANCE_THRESHOLD = 0.3
 DESTINATION_THRESHOLD = 0.1
-LINEAR_VELOCITY = 0.1
-ANGULAR_VELOCITY = 0.1
+LINEAR_VELOCITY = 0.11
+CIRCLE_RADIUS = 0.5
+ANGULAR_VELOCITY = LINEAR_VELOCITY / CIRCLE_RADIUS
 
 class Main():
     def __init__(self):
