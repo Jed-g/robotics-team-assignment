@@ -17,7 +17,7 @@ class Main():
         self.node_name = "move_figure_of_eight"
 
         rospy.init_node(self.node_name)
-        self.rate = rospy.Rate(10)  # hz
+        self.rate = rospy.Rate(1)  # hz
 
         self.ctrl_c = False
         rospy.on_shutdown(self.shutdownhook)
@@ -26,8 +26,6 @@ class Main():
 
         self.publish_velocity = Publish_velocity()
         self.odom_data = Odom_data()
-
-        self.odom_data.odom_print_data()
 
         self.is_loop_1 = True
         self.initial_movement = False
@@ -51,15 +49,14 @@ class Main():
 
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
-        vel_cmd = Twist()
-        self.pub.publish(vel_cmd)
         self.ctrl_c = True
-        self.odom_data.shutdown()
         self.publish_velocity.shutdown()
 
 
     def main_loop(self):
         while not self.ctrl_c:
+            print(self.odom_data.output_string)
+
             if self.is_loop_1:
                 self.loop_1_completed()
             else:
@@ -92,22 +89,10 @@ class Odom_data():
         topic_name = "odom"
         self.sub = rospy.Subscriber(topic_name, Odometry, self.callback)
 
-        self.rate = rospy.Rate(1)  # Hz
-        self.got_data = False
-        self.shutdown = False
-
         self.posx = 0
         self.posy = 0
         self.angle = 0
-
-    def shutdown(self):
-        self.shutdown = True
-
-    def odom_print_data(self):
-        while not self.shutdown:
-            if self.got_data:
-                print(self.output_string)
-            self.rate.sleep()
+        self.output_string = ""
 
     def callback(self, topic_message):
         orientation = topic_message.pose.pose.orientation
@@ -120,13 +105,12 @@ class Odom_data():
         self.posy = position.y
         self.angle = yaw
 
-        self.got_data = True
         self.output_string = f"x={position.x:.2f} [m], y={position.y:.2f} [m], yaw={yaw*180/pi:.1f} [degrees]"
 
 
 if __name__ == '__main__':
-    main_instance = Main()
     try:
+        main_instance = Main()
         main_instance.main_loop()
     except rospy.ROSInterruptException:
         pass
