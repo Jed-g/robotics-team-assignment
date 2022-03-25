@@ -5,8 +5,12 @@ import rospy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
-from math import pi
+from math import pi, sqrt
 
+INITIAL_DISTANCE_THRESHOLD = 0.3
+DESTINATION_THRESHOLD = 0.1
+LINEAR_VELOCITY = 0.1
+ANGULAR_VELOCITY = 0.1
 
 class Main():
     def __init__(self):
@@ -26,13 +30,23 @@ class Main():
         self.odom_data.odom_print_data()
 
         self.is_loop_1 = True
+        self.initial_movement = False
     
     def loop_1_completed(self):
-        self.is_loop_1 = False
+        if not self.initial_movement:
+            if sqrt(self.odom_data.posx**2+self.odom_data.posy**2) >= INITIAL_DISTANCE_THRESHOLD:
+                self.initial_movement = True
+        elif sqrt(self.odom_data.posx**2+self.odom_data.posy**2) <= DESTINATION_THRESHOLD:
+            self.initial_movement = False
+            self.is_loop_1 = False
 
     def loop_2_completed(self):
-        #shutdown & success message
-        pass
+        if not self.initial_movement:
+            if sqrt(self.odom_data.posx**2+self.odom_data.posy**2) >= INITIAL_DISTANCE_THRESHOLD:
+                self.initial_movement = True
+        elif sqrt(self.odom_data.posx**2+self.odom_data.posy**2) <= DESTINATION_THRESHOLD:
+            print("Manoeuver completed successfully")
+            self.shutdownhook()
 
 
     def shutdownhook(self):
@@ -51,10 +65,9 @@ class Main():
             else:
                 self.loop_2_completed()
 
-            vel_cmd = Twist()
-            vel_cmd.linear.x = 0.26  # m/s
-            vel_cmd.angular.z = 0.26 if self.is_loop_1 else -0.26  # rad/s
-            self.pub.publish(vel_cmd)
+            angular_vel = ANGULAR_VELOCITY if self.is_loop_1 else -ANGULAR_VELOCITY # rad/s
+            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, angular_vel)
+
             self.rate.sleep()
 
 class Publish_velocity():
@@ -83,6 +96,10 @@ class Odom_data():
         self.got_data = False
         self.shutdown = False
 
+        self.posx = 0
+        self.posy = 0
+        self.angle = 0
+
     def shutdown(self):
         self.shutdown = True
 
@@ -99,6 +116,9 @@ class Odom_data():
             [orientation.x, orientation.y, orientation.z, orientation.w], 'sxyz')
 
         position = topic_message.pose.pose.position
+        self.posx = position.x
+        self.posy = position.y
+        self.angle = yaw
 
         self.got_data = True
         self.output_string = f"x={position.x:.2f} [m], y={position.y:.2f} [m], yaw={yaw*180/pi:.1f} [degrees]"
