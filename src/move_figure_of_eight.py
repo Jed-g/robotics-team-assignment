@@ -1,31 +1,39 @@
 #!/usr/bin/env python3
 
+from msilib.schema import PublishComponent
 import rospy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
+from math import pi
 
 
-class Publisher():
-
+class Main():
     def __init__(self):
         self.node_name = "move_figure_of_eight"
-        topic_name = "cmd_vel"
 
-        self.pub = rospy.Publisher(topic_name, Twist, queue_size=10)
         rospy.init_node(self.node_name)
-        self.rate = rospy.Rate(1)  # hz
+        self.rate = rospy.Rate(10)  # hz
 
         self.ctrl_c = False
         rospy.on_shutdown(self.shutdownhook)
 
         rospy.loginfo(f"The '{self.node_name}' node is active...")
 
+        self.publish_velocity = Publish_velocity()
+        self.odom_data = Odom_data()
+
+        self.odom_data.odom_print_data()
+
+
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
         vel_cmd = Twist()
         self.pub.publish(vel_cmd)
         self.ctrl_c = True
+        self.odom_data.shutdown()
+        self.publish_velocity.shutdown()
+
 
     def main_loop(self):
         while not self.ctrl_c:
@@ -35,27 +43,36 @@ class Publisher():
             self.pub.publish(vel_cmd)
             self.rate.sleep()
 
+class Publish_velocity():
+
+    def __init__(self):
+        topic_name = "cmd_vel"
+        self.pub = rospy.Publisher(topic_name, Twist, queue_size=10)
+
+    def publish_velocity(self, linear = 0, angular = 0):
+        vel_cmd = Twist()
+        vel_cmd.linear.x = linear
+        vel_cmd.angular.z = angular
+        self.pub.publish(vel_cmd)
+
+    def shutdown(self):
+        self.publish_velocity()
+
+
 class Odom_data():
 
     def __init__(self):
-        self.node_name = "odom_subscriber"
         topic_name = "odom"
-
-        rospy.init_node(self.node_name, anonymous=True)
         self.sub = rospy.Subscriber(topic_name, Odometry, self.callback)
-        rospy.loginfo("odom subscriber is active...")
 
         self.rate = rospy.Rate(1)  # Hz
-        self.shutdown = False
         self.got_data = False
+        self.shutdown = False
 
-        rospy.on_shutdown(self.shutdown_hook)
-
-    def shutdown_hook(self):
+    def shutdown(self):
         self.shutdown = True
 
-    def main_loop(self):
-        # rospy.spin()
+    def odom_print_data(self):
         while not self.shutdown:
             if self.got_data:
                 print(self.output_string)
@@ -70,12 +87,12 @@ class Odom_data():
         position = topic_message.pose.pose.position
 
         self.got_data = True
-        self.output_string = f"x = {position.x:.2f}, y = {position.y:.2f}, theta_z = {yaw:.2f}"
+        self.output_string = f"x={position.x:.2f} [m], y={position.y:.2f} [m], yaw={yaw*180/pi:.1f} [degrees]"
 
 
 if __name__ == '__main__':
-    publisher_instance = Publisher()
+    main_instance = Main()
     try:
-        publisher_instance.main_loop()
+        main_instance.main_loop()
     except rospy.ROSInterruptException:
         pass
