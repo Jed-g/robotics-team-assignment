@@ -4,20 +4,24 @@ import rospy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
-from math import pi, sqrt
+from math import pi, sqrt, atan
 
 INITIAL_DISTANCE_THRESHOLD = 0.3
-DESTINATION_THRESHOLD = 0.1
-LINEAR_VELOCITY = 0.11
+DESTINATION_THRESHOLD = 0.05
+LINEAR_VELOCITY = 0.13
 CIRCLE_RADIUS = 0.5
 ANGULAR_VELOCITY = LINEAR_VELOCITY / CIRCLE_RADIUS
+ANGLE_PRECISION = 0.01
+ANGLE_CORRECTION_SPEED = 0.2
+DISTANCE_CORRECTION_PRECISION = 0.005
+DISTANCE_CORRECTION_SPEED = 0.05
 
 class Main():
     def __init__(self):
         self.node_name = "move_figure_of_eight"
 
         rospy.init_node(self.node_name)
-        self.rate = rospy.Rate(1)  # hz
+        self.rate = rospy.Rate(10)  # hz
 
         self.ctrl_c = False
         rospy.on_shutdown(self.shutdownhook)
@@ -29,6 +33,7 @@ class Main():
 
         self.is_loop_1 = True
         self.initial_movement = False
+        self.message_iteration = 1
     
     def loop_1_completed(self):
         if not self.initial_movement:
@@ -37,12 +42,14 @@ class Main():
         elif sqrt(self.odom_data.posx**2+self.odom_data.posy**2) <= DESTINATION_THRESHOLD:
             self.initial_movement = False
             self.is_loop_1 = False
+            self.correct_position()
 
     def loop_2_completed(self):
         if not self.initial_movement:
             if sqrt(self.odom_data.posx**2+self.odom_data.posy**2) >= INITIAL_DISTANCE_THRESHOLD:
                 self.initial_movement = True
         elif sqrt(self.odom_data.posx**2+self.odom_data.posy**2) <= DESTINATION_THRESHOLD:
+            self.correct_position()
             print("Manoeuver completed successfully")
             self.shutdownhook()
 
@@ -52,10 +59,28 @@ class Main():
         self.ctrl_c = True
         self.publish_velocity.shutdown()
 
+    def correct_position(self):
+        def sign(x):
+            return 1 if x >= 0 else -1
+
+        angle = -atan(self.odom_data.posy/self.odom_data.posx)
+
+        if sqrt(self.odom_data.posx**2+self.odom_data.posy**2) > DISTANCE_CORRECTION_PRECISION:
+            while abs(angle - self.odom_data.angle) - ANGLE_PRECISION > 0 and not self.ctrl_c:
+                self.publish_velocity.publish_velocity(0, sign(angle - self.odom_data.angle)*ANGLE_CORRECTION_SPEED)
+            
+            while sqrt(self.odom_data.posx**2+self.odom_data.posy**2) > DISTANCE_CORRECTION_PRECISION and not self.ctrl_c:
+                self.publish_velocity.publish_velocity(DISTANCE_CORRECTION_SPEED, 0)
+
+        while abs(self.odom_data.angle) - ANGLE_PRECISION > 0 and not self.ctrl_c:
+            self.publish_velocity.publish_velocity(0, sign(-self.odom_data.angle)*ANGLE_CORRECTION_SPEED)
 
     def main_loop(self):
         while not self.ctrl_c:
-            print(self.odom_data.output_string)
+            self.message_iteration += 1
+            if self.message_iteration > 10:
+                self.message_iteration = 1
+                print(self.odom_data.output_string)
 
             if self.is_loop_1:
                 self.loop_1_completed()
