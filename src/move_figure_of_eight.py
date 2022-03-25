@@ -25,6 +25,15 @@ class Main():
 
         self.odom_data.odom_print_data()
 
+        self.is_loop_1 = True
+    
+    def loop_1_completed(self):
+        self.is_loop_1 = False
+
+    def loop_2_completed(self):
+        #shutdown & success message
+        pass
+
 
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
@@ -37,9 +46,14 @@ class Main():
 
     def main_loop(self):
         while not self.ctrl_c:
+            if self.is_loop_1:
+                self.loop_1_completed()
+            else:
+                self.loop_2_completed()
+
             vel_cmd = Twist()
             vel_cmd.linear.x = 0.26  # m/s
-            vel_cmd.angular.z = 0.26  # rad/s
+            vel_cmd.angular.z = 0.26 if self.is_loop_1 else -0.26  # rad/s
             self.pub.publish(vel_cmd)
             self.rate.sleep()
 
