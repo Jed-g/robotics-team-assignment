@@ -32,6 +32,8 @@ class Main():
         self.message_iteration = 1
         self.distance_travelled = 0
         self.first_iteration = True
+        self.position_previous_iteration_x = 0
+        self.position_previous_iteration_y = 0
 
     def loop_1_completed(self):
         if self.distance_travelled >= REAL_WORLD_CORRECTION_FACTOR*2*pi*CIRCLE_RADIUS:
