@@ -16,7 +16,7 @@ ANGLE_PRECISION = 0.01
 ANGLE_CORRECTION_SPEED = 0.25
 DISTANCE_CORRECTION_PRECISION = 0.02
 DISTANCE_CORRECTION_SPEED = 0.08
-FREQUENCY = 50
+FREQUENCY = 100
 
 
 class Main():
@@ -41,16 +41,13 @@ class Main():
         self.position_previous_iteration_y = 0
 
     def loop_1_completed(self):
-        if (sqrt(self.odom_data.posx**2+self.odom_data.posy**2) <= DESTINATION_THRESHOLD and self.distance_travelled > INITIAL_DISTANCE_THRESHOLD
-            ) or self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
-
+        if self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
             self.is_loop_1 = False
             #self.correct_position()
             self.distance_travelled = 0
 
     def loop_2_completed(self):
-        if (sqrt(self.odom_data.posx**2+self.odom_data.posy**2) <= DESTINATION_THRESHOLD and self.distance_travelled > INITIAL_DISTANCE_THRESHOLD
-            ) or self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
+        if self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
 
             #self.correct_position()
             self.distance_travelled = 0
