@@ -45,14 +45,14 @@ class Main():
             ) or self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
 
             self.is_loop_1 = False
-            self.correct_position()
+            #self.correct_position()
             self.distance_travelled = 0
 
     def loop_2_completed(self):
         if (sqrt(self.odom_data.posx**2+self.odom_data.posy**2) <= DESTINATION_THRESHOLD and self.distance_travelled > INITIAL_DISTANCE_THRESHOLD
             ) or self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
 
-            self.correct_position()
+            #self.correct_position()
             self.distance_travelled = 0
             print("Manoeuver completed successfully")
             self.shutdownhook()
