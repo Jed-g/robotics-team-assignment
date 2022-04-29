@@ -7,7 +7,7 @@ from tf.transformations import euler_from_quaternion
 from math import pi, sqrt, atan
 
 INITIAL_DISTANCE_THRESHOLD = 0.3
-DESTINATION_THRESHOLD = 0.05
+DESTINATION_THRESHOLD = 0.01
 CIRCLE_RADIUS = 0.5
 TIME_PER_LOOP = 28
 LINEAR_VELOCITY = 2 * pi * CIRCLE_RADIUS / TIME_PER_LOOP
