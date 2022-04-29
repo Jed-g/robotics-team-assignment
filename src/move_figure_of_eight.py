@@ -32,8 +32,7 @@ class Main():
         self.is_loop_1 = True
         self.message_iteration = 1
         self.distance_travelled = 0
-        self.position_previous_iteration_x = 0
-        self.position_previous_iteration_y = 0
+        self.first_iteration = True
 
     def loop_1_completed(self):
         if self.distance_travelled >= REAL_WORLD_CORRECTION_FACTOR*2*pi*CIRCLE_RADIUS:
@@ -66,19 +65,26 @@ class Main():
 
     def main_loop(self):
         while not self.ctrl_c:
-            self.print_data()
-            self.update_distance_travelled()
+            if self.odom_data.initial_data_loaded:
+                if self.first_iteration:
+                    self.position_previous_iteration_x = self.odom_data.posx
+                    self.position_previous_iteration_y = self.odom_data.posy
+                    self.first_iteration = False
+                    print(self.odom_data.output_string)
 
-            if self.is_loop_1:
-                self.loop_1_completed()
-            else:
-                self.loop_2_completed()
+                self.print_data()
+                self.update_distance_travelled()
 
-            angular_vel = ANGULAR_VELOCITY if self.is_loop_1 else -ANGULAR_VELOCITY  # rad/s
-            self.publish_velocity.publish_velocity(
-                LINEAR_VELOCITY, angular_vel)
+                if self.is_loop_1:
+                    self.loop_1_completed()
+                else:
+                    self.loop_2_completed()
 
-            self.rate.sleep()
+                angular_vel = ANGULAR_VELOCITY if self.is_loop_1 else -ANGULAR_VELOCITY  # rad/s
+                self.publish_velocity.publish_velocity(
+                    LINEAR_VELOCITY, angular_vel)
+
+                self.rate.sleep()
 
 
 class Publish_velocity():
@@ -103,10 +109,14 @@ class Odom_data():
         topic_name = "odom"
         self.sub = rospy.Subscriber(topic_name, Odometry, self.callback)
 
+        self.initial_data_loaded = False
         self.posx = 0
         self.posy = 0
         self.angle = 0
         self.output_string = ""
+        self.initial_x = 0
+        self.initial_y = 0
+        self.initial_angle = 0
 
     def callback(self, topic_message):
         orientation = topic_message.pose.pose.orientation
@@ -119,7 +129,13 @@ class Odom_data():
         self.posy = position.y
         self.angle = yaw
 
-        self.output_string = f"x={position.x:.2f} [m], y={position.y:.2f} [m], yaw={yaw*180/pi:.1f} [degrees]"
+        if not self.initial_data_loaded:
+            self.initial_x = self.posx
+            self.initial_y = self.posy
+            self.initial_angle = self.angle
+
+        self.initial_data_loaded = True
+        self.output_string = f"x={position.x - self.initial_x:.2f} [m], y={position.y - self.initial_y:.2f} [m], yaw={(yaw - self.initial_angle)*180/pi:.1f} [degrees]"
 
 
 if __name__ == '__main__':
