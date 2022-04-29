@@ -4,19 +4,14 @@ import rospy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
-from math import pi, sqrt, atan
+from math import pi, sqrt
 
-INITIAL_DISTANCE_THRESHOLD = 0.3
-DESTINATION_THRESHOLD = 0.01
 CIRCLE_RADIUS = 0.5
 TIME_PER_LOOP = 28
 LINEAR_VELOCITY = 2 * pi * CIRCLE_RADIUS / TIME_PER_LOOP
 ANGULAR_VELOCITY = LINEAR_VELOCITY / CIRCLE_RADIUS
-ANGLE_PRECISION = 0.01
-ANGLE_CORRECTION_SPEED = 0.25
-DISTANCE_CORRECTION_PRECISION = 0.02
-DISTANCE_CORRECTION_SPEED = 0.08
 FREQUENCY = 100
+REAL_WORLD_CORRECTION_FACTOR = 1.04
 
 
 class Main():
@@ -41,15 +36,12 @@ class Main():
         self.position_previous_iteration_y = 0
 
     def loop_1_completed(self):
-        if self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
+        if self.distance_travelled >= REAL_WORLD_CORRECTION_FACTOR*2*pi*CIRCLE_RADIUS:
             self.is_loop_1 = False
-            #self.correct_position()
             self.distance_travelled = 0
 
     def loop_2_completed(self):
-        if self.distance_travelled >= 2*pi*CIRCLE_RADIUS:
-
-            #self.correct_position()
+        if self.distance_travelled >= REAL_WORLD_CORRECTION_FACTOR*2*pi*CIRCLE_RADIUS:
             self.distance_travelled = 0
             print("Manoeuver completed successfully")
             self.shutdownhook()
@@ -58,41 +50,6 @@ class Main():
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
         self.ctrl_c = True
         self.publish_velocity.shutdown()
-
-    def correct_position(self):
-        def sign(x):
-            return 1 if x >= 0 else -1
-
-        angle = None
-
-        if self.odom_data.posx == 0:
-            angle = sign(self.odom_data.posy) * pi/2
-        else:
-            angle = atan(self.odom_data.posy/self.odom_data.posx)
-
-        reverse = False
-
-        if self.odom_data.posx >= 0:
-            reverse = True
-
-        if sqrt(self.odom_data.posx**2+self.odom_data.posy**2) > DISTANCE_CORRECTION_PRECISION:
-            while abs(angle - self.odom_data.angle) - ANGLE_PRECISION > 0 and not self.ctrl_c:
-                self.publish_velocity.publish_velocity(
-                    0, sign(angle - self.odom_data.angle)*ANGLE_CORRECTION_SPEED)
-                self.print_data()
-                self.rate.sleep()
-
-            while sqrt(self.odom_data.posx**2+self.odom_data.posy**2) > DISTANCE_CORRECTION_PRECISION and not self.ctrl_c:
-                self.publish_velocity.publish_velocity(
-                    DISTANCE_CORRECTION_SPEED if not reverse else -DISTANCE_CORRECTION_SPEED, 0)
-                self.print_data()
-                self.rate.sleep()
-
-        while abs(self.odom_data.angle) - ANGLE_PRECISION > 0 and not self.ctrl_c:
-            self.publish_velocity.publish_velocity(
-                0, sign(-self.odom_data.angle)*ANGLE_CORRECTION_SPEED)
-            self.print_data()
-            self.rate.sleep()
 
     def print_data(self):
         self.message_iteration += 1
