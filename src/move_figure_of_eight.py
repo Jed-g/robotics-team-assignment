@@ -13,7 +13,6 @@ ANGULAR_VELOCITY = LINEAR_VELOCITY / CIRCLE_RADIUS
 FREQUENCY = 100
 REAL_WORLD_CORRECTION_FACTOR = 1.04
 
-
 class Main():
     def __init__(self):
         self.node_name = "move_figure_of_eight"
@@ -117,6 +116,7 @@ class Odom_data():
         self.initial_x = 0
         self.initial_y = 0
         self.initial_angle = 0
+        self.offset_angle_var = 0
 
     def callback(self, topic_message):
         orientation = topic_message.pose.pose.orientation
@@ -135,7 +135,16 @@ class Odom_data():
             self.initial_angle = self.angle
 
         self.initial_data_loaded = True
-        self.output_string = f"x={position.x - self.initial_x:.2f} [m], y={position.y - self.initial_y:.2f} [m], yaw={(yaw - self.initial_angle)*180/pi:.1f} [degrees]"
+        self.offset_angle()
+        self.output_string = f"x={position.x - self.initial_x:.2f} [m], y={position.y - self.initial_y:.2f} [m], yaw={self.offset_angle_var*180/pi:.1f} [degrees]"
+    
+    def offset_angle(self):
+        absolute_angle = self.angle if self.angle >= 0 else self.angle + 2*pi
+        absolute_initial_angle = self.initial_angle if self.initial_angle >= 0 else self.initial_angle + 2*pi
+        self.offset_angle_var = absolute_angle - absolute_initial_angle + 2*pi if absolute_angle < absolute_initial_angle else absolute_angle - absolute_initial_angle
+        if self.offset_angle_var > pi:
+            self.offset_angle_var = self.offset_angle_var - 2*pi
+
 
 
 if __name__ == '__main__':
