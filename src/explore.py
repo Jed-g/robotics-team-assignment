@@ -6,16 +6,11 @@ from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 from math import pi, sqrt
 
-CIRCLE_RADIUS = 0.5
-TIME_PER_LOOP = 28
-LINEAR_VELOCITY = 2 * pi * CIRCLE_RADIUS / TIME_PER_LOOP
-ANGULAR_VELOCITY = LINEAR_VELOCITY / CIRCLE_RADIUS
 FREQUENCY = 100
-REAL_WORLD_CORRECTION_FACTOR = 1.04
 
 class Main():
     def __init__(self):
-        self.node_name = "move_figure_of_eight"
+        self.node_name = "explore"
 
         rospy.init_node(self.node_name)
         self.rate = rospy.Rate(FREQUENCY)  # hz
@@ -27,24 +22,6 @@ class Main():
 
         self.publish_velocity = Publish_velocity()
         self.odom_data = Odom_data()
-
-        self.is_loop_1 = True
-        self.message_iteration = 1
-        self.distance_travelled = 0
-        self.first_iteration = True
-        self.position_previous_iteration_x = 0
-        self.position_previous_iteration_y = 0
-
-    def loop_1_completed(self):
-        if self.distance_travelled >= REAL_WORLD_CORRECTION_FACTOR*2*pi*CIRCLE_RADIUS:
-            self.is_loop_1 = False
-            self.distance_travelled = 0
-
-    def loop_2_completed(self):
-        if self.distance_travelled >= REAL_WORLD_CORRECTION_FACTOR*2*pi*CIRCLE_RADIUS:
-            self.distance_travelled = 0
-            print("Manoeuver completed successfully")
-            self.shutdownhook()
 
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
