@@ -7,7 +7,7 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from math import inf, pi, sqrt
 
-FREQUENCY = 100
+FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.8
 
@@ -90,14 +90,24 @@ class Lidar_data():
         current_space = 0
         previous_inf = False
         beginning_of_greatest = 0
+
+        angle_before_first_obstacle = 0
+        first_angle_set = False
+        angle_after_last_obstacle = 0
+
         for i, range in enumerate(self.ranges):
             if range == inf:
+                if not first_angle_set:
+                    angle_before_first_obstacle += 1
+
                 if not previous_inf:
                     previous_inf = True
 
                 current_space += 1
 
             else:
+                first_angle_set = True
+
                 if current_space > greatest_space:
                     greatest_space = current_space
                     beginning_of_greatest = i - current_space
@@ -105,10 +115,17 @@ class Lidar_data():
                 current_space = 0
                 previous_inf = False
         
-        if greatest_space == 0:
+        angle_after_last_obstacle = current_space
+
+
+
+        if angle_before_first_obstacle + angle_after_last_obstacle == 0 or greatest_space == 0:
             return None
+        elif angle_before_first_obstacle + angle_after_last_obstacle > greatest_space:
+            angle = (angle_after_last_obstacle + angle_before_first_obstacle) / 2
+            return 360 - angle_after_last_obstacle + angle if 360 - angle_after_last_obstacle + angle < 360 else angle_after_last_obstacle + angle
         else:
-            return beginning_of_greatest + greatest_space/2
+            return beginning_of_greatest + greatest_space / 2
 
 
 if __name__ == '__main__':
