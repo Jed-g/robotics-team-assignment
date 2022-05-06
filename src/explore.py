@@ -5,9 +5,11 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
-from math import pi, sqrt
+from math import inf, pi, sqrt
 
 FREQUENCY = 100
+LINEAR_VELOCITY = 0.25
+ANGULAR_VELOCITY = 0.8
 
 class Main():
     def __init__(self):
@@ -32,7 +34,7 @@ class Main():
 
     def main_loop(self):
         while not self.ctrl_c:
-            if self.odom_data.initial_data_loaded:
+            if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
                 self.rate.sleep()
 
 
@@ -76,9 +78,38 @@ class Lidar_data():
     def __init__(self):
         topic_name = "scan"
         self.subscriber = rospy.Subscriber(topic_name, LaserScan, self.scan_callback)
+        self.ranges = []
+        self.initial_data_loaded = False
 
-        def scan_callback(self, scan_data):
-            pass
+    def scan_callback(self, scan_data):
+        self.initial_data_loaded = True
+        self.ranges = scan_data.ranges
+
+    def get_mid_angle(self):
+        greatest_space = 0
+        current_space = 0
+        previous_inf = False
+        beginning_of_greatest = 0
+        for i, range in enumerate(self.ranges):
+            if range == inf:
+                if not previous_inf:
+                    previous_inf = True
+
+                current_space += 1
+
+            else:
+                if current_space > greatest_space:
+                    greatest_space = current_space
+                    beginning_of_greatest = i - current_space
+                
+                current_space = 0
+                previous_inf = False
+        
+        if greatest_space == 0:
+            return None
+        else:
+            return beginning_of_greatest + greatest_space/2
+
 
 if __name__ == '__main__':
     try:
