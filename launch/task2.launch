@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="team16" type="explore.py" name="explore" output="screen"/>
+</launch>
