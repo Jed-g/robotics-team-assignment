@@ -9,7 +9,7 @@ from math import inf, pi, sqrt
 
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
-ANGULAR_VELOCITY = 0.8
+ANGULAR_VELOCITY = 0.5
 RANGE_THRESHOLD = 1.5
 
 class Main():
@@ -86,9 +86,24 @@ class Main():
 
             self.publish_velocity.publish_velocity()
 
+    def offset_space_array(self, array):
+        if array == None:
+            return None
+
+        for i in range(len(array)):
+            offset_angle = array[i][0] + self.odom_data.angle_360
+            corrected_offset_angle = offset_angle - 360 if offset_angle >= 360 else offset_angle
+            array[i] = (corrected_offset_angle, array[i][1])
+        
+        return array
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
+                # turns to largest space available
+                if self.lidar_data.get_space_array() != None:
+                    self.turn_to_angle_360_system(self.offset_space_array(self.lidar_data.get_space_array())[0][0])
+
                 self.rate.sleep()
 
 
@@ -116,7 +131,6 @@ class Odom_data():
         self.initial_data_loaded = False
 
     def callback(self, topic_message):
-        self.initial_data_loaded = True
         orientation = topic_message.pose.pose.orientation
 
         (_, _, yaw) = euler_from_quaternion(
@@ -128,6 +142,8 @@ class Odom_data():
         self.angle = yaw
         self.angle_360 = (self.angle if self.angle >= 0 else self.angle + 2*pi) * 180 / pi
 
+        self.initial_data_loaded = True
+
 class Lidar_data():
     
     def __init__(self):
@@ -137,48 +153,48 @@ class Lidar_data():
         self.initial_data_loaded = False
 
     def scan_callback(self, scan_data):
-        self.initial_data_loaded = True
         self.ranges = scan_data.ranges
+        self.initial_data_loaded = True
 
-    def get_mid_angle(self):
-        greatest_space = 0
-        current_space = 0
-        previous_inf = False
-        beginning_of_greatest = 0
+    # def get_mid_angle(self):
+    #     greatest_space = 0
+    #     current_space = 0
+    #     previous_inf = False
+    #     beginning_of_greatest = 0
 
-        angle_before_first_obstacle = 0
-        first_angle_set = False
-        angle_after_last_obstacle = 0
+    #     angle_before_first_obstacle = 0
+    #     first_angle_set = False
+    #     angle_after_last_obstacle = 0
 
-        for i, range in enumerate(self.ranges):
-            if range == inf:
-                if not first_angle_set:
-                    angle_before_first_obstacle += 1
+    #     for i, range in enumerate(self.ranges):
+    #         if range == inf:
+    #             if not first_angle_set:
+    #                 angle_before_first_obstacle += 1
 
-                if not previous_inf:
-                    previous_inf = True
+    #             if not previous_inf:
+    #                 previous_inf = True
 
-                current_space += 1
+    #             current_space += 1
 
-            else:
-                first_angle_set = True
+    #         else:
+    #             first_angle_set = True
 
-                if current_space > greatest_space:
-                    greatest_space = current_space
-                    beginning_of_greatest = i - current_space
+    #             if current_space > greatest_space:
+    #                 greatest_space = current_space
+    #                 beginning_of_greatest = i - current_space
                 
-                current_space = 0
-                previous_inf = False
+    #             current_space = 0
+    #             previous_inf = False
         
-        angle_after_last_obstacle = current_space
+    #     angle_after_last_obstacle = current_space
 
-        if angle_before_first_obstacle + angle_after_last_obstacle == 0 or greatest_space == 0:
-            return None
-        elif angle_before_first_obstacle + angle_after_last_obstacle > greatest_space:
-            angle = (angle_after_last_obstacle + angle_before_first_obstacle) / 2
-            return 360 - angle_after_last_obstacle + angle if 360 - angle_after_last_obstacle + angle < 360 else angle_after_last_obstacle + angle
-        else:
-            return beginning_of_greatest + greatest_space / 2
+    #     if angle_before_first_obstacle + angle_after_last_obstacle == 0 or greatest_space == 0:
+    #         return None
+    #     elif angle_before_first_obstacle + angle_after_last_obstacle > greatest_space:
+    #         angle = (angle_after_last_obstacle + angle_before_first_obstacle) / 2
+    #         return 360 - angle_after_last_obstacle + angle if 360 - angle_after_last_obstacle + angle < 360 else angle_after_last_obstacle + angle
+    #     else:
+    #         return beginning_of_greatest + greatest_space / 2
 
     def get_space_array(self):
         previous_inf = False
