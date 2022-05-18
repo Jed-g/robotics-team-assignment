@@ -33,11 +33,62 @@ class Main():
         self.ctrl_c = True
         self.publish_velocity.shutdown()
 
+    def turn_to_angle_360_system(self, angle):
+        self.publish_velocity.publish_velocity()
+
+        difference_clockwise = self.odom_data.angle_360 - angle + 360 if angle > self.odom_data.angle_360 else self.odom_data.angle_360 - angle
+        difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle if angle < self.odom_data.angle_360 else angle - self.odom_data.angle_360
+
+        requires_crossing_0_360 = False
+
+        turn_clockwise = True
+
+        if difference_clockwise <= difference_anti_clockwise:
+            if angle > self.odom_data.angle_360:
+                requires_crossing_0_360 = True
+        else:
+            turn_clockwise = False
+            if angle < self.odom_data.angle_360:
+                requires_crossing_0_360 = True
+
+        if turn_clockwise:
+            initial_angle = self.odom_data.angle_360
+
+            if requires_crossing_0_360:
+                while self.odom_data.angle_360 <= initial_angle:
+                    if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                    self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+
+            while self.odom_data.angle_360 > angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+
+            self.publish_velocity.publish_velocity()
+        else:
+            initial_angle = self.odom_data.angle_360
+
+            if requires_crossing_0_360:
+                while self.odom_data.angle_360 >= initial_angle:
+                    if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                    self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+
+            while self.odom_data.angle_360 < angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+
+            self.publish_velocity.publish_velocity()
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
-                print(self.lidar_data.get_space_array())
-                return
                 self.rate.sleep()
 
 
@@ -75,6 +126,7 @@ class Odom_data():
         self.posx = position.x
         self.posy = position.y
         self.angle = yaw
+        self.angle_360 = (self.angle if self.angle >= 0 else self.angle + 2*pi) * 180 / pi
 
 class Lidar_data():
     
@@ -119,8 +171,6 @@ class Lidar_data():
                 previous_inf = False
         
         angle_after_last_obstacle = current_space
-
-
 
         if angle_before_first_obstacle + angle_after_last_obstacle == 0 or greatest_space == 0:
             return None
