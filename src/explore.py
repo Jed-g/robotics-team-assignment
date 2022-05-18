@@ -12,12 +12,15 @@ FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.4
 RANGE_THRESHOLD = 1.5
-CLEARANCE_THRESHOLD = 0.3
-WALL_PROXIMITY_THRESHOLD = 0.4
+CLEARANCE_THRESHOLD = 0.35
+WALL_PROXIMITY_THRESHOLD = 0.3
 WALL_PROXIMITY_THRESHOLD_PRECISION = 0.05
 MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE = 30
 MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION = 5
-WALL_PARALLEL_THRESHOLD_ANGLE = 10
+WALL_PARALLEL_THRESHOLD_ANGLE = 5
+CONVEX_CORNER_THRESHOLD = 0.06
+ANGLE_CORRECTION_SPEED = 0.2
+CONVEX_CORNER_CORRECTION_SPEED = 0.05
 
 is_moving_forward = False
 
@@ -117,16 +120,18 @@ class Main():
         x_of_points = []
         y_of_points = []
 
-        for i, v in enumerate(list(self.lidar_data.ranges[15:60])):
+        for i, v in enumerate(list(self.lidar_data.ranges[30:60])):
             if v == inf:
                 continue
 
-            angle = (i + 15) * pi / 180
+            angle = (i + 30) * pi / 180
 
             x_of_points.append(v * cos(angle))
             y_of_points.append(v * sin(angle))
 
         if len(x_of_points) == 0 or len(y_of_points) == 0:
+            angle_to_turn = self.odom_data.angle_360 + 1
+            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
             return
 
         a, b = np.polyfit(np.array(x_of_points), np.array(y_of_points), 1)
@@ -139,24 +144,23 @@ class Main():
         if abs(distance_from_wall - WALL_PROXIMITY_THRESHOLD) > WALL_PROXIMITY_THRESHOLD_PRECISION:
             if distance_from_wall - WALL_PROXIMITY_THRESHOLD < 0:
                 if angle < MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE - MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 - 1
+                    angle_to_turn = self.odom_data.angle_360 - ANGLE_CORRECTION_SPEED
                     
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
                 elif angle > MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE + MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 + 1
+                    angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
                     
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
             else:
                 if angle > -MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE + MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 + 1
+                    angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
                     
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
 
                 elif angle < -MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE - MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 - 1
+                    angle_to_turn = self.odom_data.angle_360 - ANGLE_CORRECTION_SPEED
                     
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
-
 
         elif abs(angle) > WALL_PARALLEL_THRESHOLD_ANGLE:
             turn_clockwise = True
@@ -165,26 +169,41 @@ class Main():
                 turn_clockwise = False
 
             if turn_clockwise:
-                angle_to_turn = self.odom_data.angle_360 - 1
+                angle_to_turn = self.odom_data.angle_360 - ANGLE_CORRECTION_SPEED
                 self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
             else:
-                angle_to_turn = self.odom_data.angle_360 + 1
+                angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
                 self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
+
+    def is_convex_corner(self):
+        data = list(self.lidar_data.ranges)[100:80:-1]
+
+        for i in range(len(data)):
+            if i != 0:
+                if data[i-1] - data[i] < -CONVEX_CORNER_THRESHOLD:
+                    return True
+        
+        return False
 
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
                 
                 if self.can_move_forward():
-                    is_moving_forward = True
-                    self.follow_left_wall()
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                    if not self.is_convex_corner():
+                        is_moving_forward = True
+                        self.follow_left_wall()
+                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                    else:
+                        is_moving_forward = True
+                        angle_to_turn = self.odom_data.angle_360 + CONVEX_CORNER_CORRECTION_SPEED
+                        self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
                 else:
                     is_moving_forward = False
                     self.publish_velocity.publish_velocity()
                     angle_to_turn = self.odom_data.angle_360 - 1
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
-                
+
                 self.rate.sleep()
 
 
