@@ -11,6 +11,7 @@ FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.5
 RANGE_THRESHOLD = 1.5
+CLEARANCE_THRESHOLD = 0.3
 
 class Main():
     def __init__(self):
@@ -97,12 +98,22 @@ class Main():
         
         return array
 
+    def can_move_forward(self):
+        data = list(self.lidar_data.ranges[360-30:])
+        data.extend(list(self.lidar_data.ranges[:30]))
+
+        if min(data) < CLEARANCE_THRESHOLD:
+            return False
+        return True
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
-                # turns to largest space available
-                if self.lidar_data.get_space_array() != None:
-                    self.turn_to_angle_360_system(self.offset_space_array(self.lidar_data.get_space_array())[0][0])
+                
+                if self.can_move_forward():
+                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                else:
+                    self.publish_velocity.publish_velocity()
 
                 self.rate.sleep()
 
