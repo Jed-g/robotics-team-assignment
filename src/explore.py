@@ -10,6 +10,7 @@ from math import inf, pi, sqrt
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.8
+RANGE_THRESHOLD = 1.5
 
 class Main():
     def __init__(self):
@@ -35,6 +36,8 @@ class Main():
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
+                print(self.lidar_data.get_space_array())
+                return
                 self.rate.sleep()
 
 
@@ -126,6 +129,60 @@ class Lidar_data():
             return 360 - angle_after_last_obstacle + angle if 360 - angle_after_last_obstacle + angle < 360 else angle_after_last_obstacle + angle
         else:
             return beginning_of_greatest + greatest_space / 2
+
+    def get_space_array(self):
+        previous_inf = False
+
+        angle_before_first_obstacle = 0
+        first_angle_set = False
+
+        angle_array = []
+        beginning_of_current_space = None
+
+        for i, _range in enumerate(self.ranges):
+            if _range > RANGE_THRESHOLD:
+                if not first_angle_set:
+                    angle_before_first_obstacle += 1
+
+                if not previous_inf:
+                    beginning_of_current_space = i
+                    previous_inf = True
+
+            else:
+                if not first_angle_set:
+                    first_angle_set = True
+                    previous_inf = False
+
+                if previous_inf and first_angle_set:
+                    mid_angle = beginning_of_current_space + (i - beginning_of_current_space)/2
+                    size_of_angle = i - beginning_of_current_space
+                    
+                    angle_array.append((mid_angle, size_of_angle))
+                    beginning_of_current_space = None
+                
+                if previous_inf:
+                    previous_inf = False
+        
+        if not first_angle_set:
+            return None
+
+        angle_after_last_obstacle = 0 if beginning_of_current_space == None else 360 - beginning_of_current_space
+
+        first_and_last_angle = angle_after_last_obstacle + angle_before_first_obstacle
+
+        beginning_of_last_angle = 360 - angle_after_last_obstacle
+
+        mid_angle_before_correction = beginning_of_last_angle + first_and_last_angle/2
+
+        mid_angle_of_first_and_last_angle = mid_angle_before_correction - 360 if mid_angle_before_correction >= 360 else mid_angle_before_correction
+        
+        if first_and_last_angle != 0:
+            angle_array.append((mid_angle_of_first_and_last_angle, first_and_last_angle))
+
+        angle_array.sort(key=lambda x: x[1], reverse=True)
+
+        return angle_array
+
 
 
 if __name__ == '__main__':
