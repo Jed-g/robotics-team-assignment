@@ -5,13 +5,15 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
-from math import inf, pi, sqrt
+from math import inf, pi, sqrt, sin, cos, atan2
+import numpy as np
 
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.5
 RANGE_THRESHOLD = 1.5
 CLEARANCE_THRESHOLD = 0.3
+WALL_PROXIMITY_THRESHOLD = 0.007
 
 class Main():
     def __init__(self):
@@ -106,15 +108,53 @@ class Main():
             return False
         return True
 
+    def follow_left_wall(self):
+
+        x_of_points = []
+        y_of_points = []
+
+        for i, v in enumerate(list(self.lidar_data.ranges[30:60])):
+            if v == inf:
+                continue
+
+            angle = (i + 30) * pi / 180
+
+            x_of_points.append(v * cos(angle))
+            y_of_points.append(v * sin(angle))
+
+        if len(x_of_points) == 0 or len(y_of_points) == 0:
+            return
+
+        a, b = np.polyfit(np.array(x_of_points), np.array(y_of_points), 1)
+
+        distance_from_wall = abs(b)/sqrt(a**2+1)
+
+        angle = 180 * atan2(a, 1) / pi
+
+        if abs(angle) > 3:
+            turn_clockwise = True
+
+            if a > 0:
+                turn_clockwise = False
+
+            if turn_clockwise:
+                angle_to_turn = self.odom_data.angle_360 - 1
+                
+                self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
+            else:
+                angle_to_turn = self.odom_data.angle_360 + 1
+                
+                self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
+            
+
+        
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
                 
-                if self.can_move_forward():
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                else:
-                    self.publish_velocity.publish_velocity()
-
+                self.follow_left_wall()
+                
                 self.rate.sleep()
 
 
