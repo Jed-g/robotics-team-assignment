@@ -12,17 +12,16 @@ FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.4
 RANGE_THRESHOLD = 1.5
-CLEARANCE_THRESHOLD = 0.35
+CLEARANCE_THRESHOLD = 0.3
 WALL_PROXIMITY_THRESHOLD = 0.3
 WALL_PROXIMITY_THRESHOLD_PRECISION = 0.05
 MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE = 30
 MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION = 5
 WALL_PARALLEL_THRESHOLD_ANGLE = 5
-CONVEX_CORNER_THRESHOLD = 0.06
-ANGLE_CORRECTION_SPEED = 0.2
-CONVEX_CORNER_CORRECTION_SPEED = 0.05
-
-is_moving_forward = False
+CONVEX_CORNER_THRESHOLD = 0.3
+ANGLE_CORRECTION_SPEED = 1
+CONVEX_CORNER_CORRECTION_SPEED = 1
+STOP_TO_CORRECT_ANGLE_THRESHOLD = 10
 
 class Main():
     def __init__(self):
@@ -40,12 +39,16 @@ class Main():
         self.odom_data = Odom_data()
         self.lidar_data = Lidar_data()
 
+        self.is_moving_forward = False
+        self.correct_distance_to_wall = False
+        self.wall_too_far = False
+
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
         self.ctrl_c = True
         self.publish_velocity.shutdown()
 
-    def turn_to_angle_360_system(self, angle):
+    def turn_to_angle_360_system(self, angle, ang_speed = None, lin_speed = None):
         difference_clockwise = self.odom_data.angle_360 - angle + 360 if angle > self.odom_data.angle_360 else self.odom_data.angle_360 - angle
         difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle if angle < self.odom_data.angle_360 else angle - self.odom_data.angle_360
 
@@ -69,13 +72,22 @@ class Main():
                     if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
                         return
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY if is_moving_forward else 0, -ANGULAR_VELOCITY)
+                    
+                    if lin_speed == None:
+                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY if self.is_moving_forward else 0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+                    else:
+                        self.publish_velocity.publish_velocity(lin_speed if self.is_moving_forward else 0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+
 
             while self.odom_data.angle_360 > angle:
                 if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
                         return
-                self.publish_velocity.publish_velocity(LINEAR_VELOCITY if is_moving_forward else 0, -ANGULAR_VELOCITY)
+                
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY if self.is_moving_forward else 0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed if self.is_moving_forward else 0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
             self.publish_velocity.publish_velocity()
         else:
@@ -86,13 +98,21 @@ class Main():
                     if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
                         return
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY if is_moving_forward else 0, ANGULAR_VELOCITY)
+                    
+                    if lin_speed == None:
+                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY if self.is_moving_forward else 0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+                    else:
+                        self.publish_velocity.publish_velocity(lin_speed if self.is_moving_forward else 0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
             while self.odom_data.angle_360 < angle:
                 if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
                         return
-                self.publish_velocity.publish_velocity(LINEAR_VELOCITY if is_moving_forward else 0, ANGULAR_VELOCITY)
+
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY if self.is_moving_forward else 0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed if self.is_moving_forward else 0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
             self.publish_velocity.publish_velocity()
 
@@ -120,11 +140,11 @@ class Main():
         x_of_points = []
         y_of_points = []
 
-        for i, v in enumerate(list(self.lidar_data.ranges[30:60])):
+        for i, v in enumerate(list(self.lidar_data.ranges[15:60])):
             if v == inf:
                 continue
 
-            angle = (i + 30) * pi / 180
+            angle = (i + 15) * pi / 180
 
             x_of_points.append(v * cos(angle))
             y_of_points.append(v * sin(angle))
@@ -141,8 +161,18 @@ class Main():
         angle = 180 * atan2(a, 1) / pi
         print(angle)
         print(distance_from_wall)
+
         if abs(distance_from_wall - WALL_PROXIMITY_THRESHOLD) > WALL_PROXIMITY_THRESHOLD_PRECISION:
+            self.correct_distance_to_wall = True
+        
+        print(self.correct_distance_to_wall)
+        if self.correct_distance_to_wall:
             if distance_from_wall - WALL_PROXIMITY_THRESHOLD < 0:
+                self.wall_too_far = False
+
+                if distance_from_wall - WALL_PROXIMITY_THRESHOLD < -STOP_TO_CORRECT_ANGLE_THRESHOLD:
+                    self.is_moving_forward = False
+
                 if angle < MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE - MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
                     angle_to_turn = self.odom_data.angle_360 - ANGLE_CORRECTION_SPEED
                     
@@ -151,7 +181,9 @@ class Main():
                     angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
                     
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
+                
             else:
+                self.wall_too_far = True
                 if angle > -MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE + MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
                     angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
                     
@@ -162,7 +194,10 @@ class Main():
                     
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
 
-        elif abs(angle) > WALL_PARALLEL_THRESHOLD_ANGLE:
+            if (self.wall_too_far and distance_from_wall - WALL_PROXIMITY_THRESHOLD <= 0) or (not self.wall_too_far and distance_from_wall - WALL_PROXIMITY_THRESHOLD >= 0):
+                self.correct_distance_to_wall = False
+
+        elif abs(angle) > WALL_PARALLEL_THRESHOLD_ANGLE and not self.correct_distance_to_wall:
             turn_clockwise = True
 
             if a > 0:
@@ -185,21 +220,27 @@ class Main():
         
         return False
 
+    def do_turn(self):
+        self.is_moving_forward = True
+        angle_to_turn = self.odom_data.angle_360 + 90
+        angle_to_turn_corrected = angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360
+
+        self.turn_to_angle_360_system(angle_to_turn_corrected, CONVEX_CORNER_CORRECTION_SPEED)
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
                 
                 if self.can_move_forward():
                     if not self.is_convex_corner():
-                        is_moving_forward = True
+                        self.is_moving_forward = True
                         self.follow_left_wall()
                         self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
                     else:
-                        is_moving_forward = True
-                        angle_to_turn = self.odom_data.angle_360 + CONVEX_CORNER_CORRECTION_SPEED
-                        self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
+                        self.do_turn()
                 else:
-                    is_moving_forward = False
+                    print("test")
+                    self.is_moving_forward = False
                     self.publish_velocity.publish_velocity()
                     angle_to_turn = self.odom_data.angle_360 - 1
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
