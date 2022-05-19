@@ -11,10 +11,10 @@ import time
 
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
-ANGULAR_VELOCITY = 0.8
-RANGE_THRESHOLD = 1.5
-CLEARANCE_THRESHOLD = 0.35
-FORWARD_STOPPING_THRESHOLD = 0.45
+ANGULAR_VELOCITY = 1.2
+RANGE_THRESHOLD = 2.2
+CLEARANCE_THRESHOLD = 0.3
+FORWARD_STOPPING_THRESHOLD = 0.4
 WALL_PROXIMITY_THRESHOLD = 0.4
 WALL_PROXIMITY_THRESHOLD_PRECISION = 0.05
 MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE = 30
@@ -24,7 +24,9 @@ CONVEX_CORNER_THRESHOLD = 0.3
 ANGLE_CORRECTION_SPEED = 1
 CONVEX_CORNER_CORRECTION_SPEED = 1
 STOP_TO_CORRECT_ANGLE_THRESHOLD = 10
-REVERSE_TIME = 1
+REVERSE_TIME = 1.8
+TURN_CORRECTION_SPEED = 0.3
+DISTANCE_FACTOR = 0.7
 
 class Main():
     def __init__(self):
@@ -95,6 +97,16 @@ class Main():
                 else:
                     self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
+            while self.odom_data.angle_360 < angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(0, TURN_CORRECTION_SPEED*ANGULAR_VELOCITY if ang_speed == None else TURN_CORRECTION_SPEED*ang_speed)
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed, TURN_CORRECTION_SPEED*ANGULAR_VELOCITY if ang_speed == None else TURN_CORRECTION_SPEED*ang_speed)
+
             self.publish_velocity.publish_velocity()
         else:
             initial_angle = self.odom_data.angle_360
@@ -119,6 +131,16 @@ class Main():
                     self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
                 else:
                     self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+
+            while self.odom_data.angle_360 > angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(0, TURN_CORRECTION_SPEED*(-ANGULAR_VELOCITY) if ang_speed == None else TURN_CORRECTION_SPEED*(-ang_speed))
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed, TURN_CORRECTION_SPEED*(-ANGULAR_VELOCITY) if ang_speed == None else TURN_CORRECTION_SPEED*(-ang_speed))
 
             self.publish_velocity.publish_velocity()
 
@@ -244,7 +266,7 @@ class Main():
 
         for point_x, point_y in self.visited_points:
             euc_distance = sqrt((current_x - point_x)**2 + (current_y-point_y)**2)
-            distance_inverse = 1/(euc_distance)**2
+            distance_inverse = 1/(euc_distance)**DISTANCE_FACTOR
             visited_points_distance_diff_coefficients.append(distance_inverse)
 
             angle_radians = atan2(point_y - current_y, point_x - current_x)
