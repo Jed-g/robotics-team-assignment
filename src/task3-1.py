@@ -47,22 +47,13 @@ class Main():
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
                 
                 if self.can_move_forward():
+
                     self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
                 else:
-                    self.publish_velocity.publish_velocity()
+                    self.publish_velocity.publish_velocity(0, -0.2)
 
                 self.rate.sleep()
 
-    def main_loop(self):
-        while not self.ctrl_c:
-            if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
-                
-                if self.can_move_forward():
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                else:
-                    self.publish_velocity.publish_velocity()
-
-                self.rate.sleep()
 
 
 class Publish_velocity():
@@ -107,7 +98,6 @@ class Lidar_data():
         self.subscriber = rospy.Subscriber(topic_name, LaserScan, self.scan_callback)
         self.ranges = []
         self.initial_data_loaded = False
-        
     def scan_callback(self, scan_data):
         self.ranges = scan_data.ranges
         self.initial_data_loaded = True
