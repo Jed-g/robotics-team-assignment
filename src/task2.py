@@ -45,6 +45,7 @@ class Main():
         # self.is_moving_forward = False
         # self.correct_distance_to_wall = False
         # self.wall_too_far = False
+        self.visited_points = []
 
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
@@ -230,15 +231,68 @@ class Main():
 
         self.turn_to_angle_360_system(angle_to_turn_corrected, ang_speed=CONVEX_CORNER_CORRECTION_SPEED)
 
+    def choose_angle(self):
+        current_x, current_y = self.odom_data.posx, self.odom_data.posy
+
+        space_array = self.offset_space_array(self.lidar_data.get_space_array())
+
+        mid_angles = list(map(lambda x: x[0], space_array))
+        widths = list(map(lambda x: x[1], space_array))
+
+        visited_points_distance_diff_coefficients = []
+        angle_of_points = []
+
+        for point_x, point_y in self.visited_points:
+            euc_distance = sqrt((current_x - point_x)**2 + (current_y-point_y)**2)
+            distance_inverse = 1/(euc_distance)**2
+            visited_points_distance_diff_coefficients.append(distance_inverse)
+
+            angle_radians = atan2(point_y - current_y, point_x - current_x)
+            angle_degrees = (angle_radians if angle_radians >= 0 else angle_radians + 2*pi) * 180 / pi
+
+            angle_of_points.append(angle_degrees)
+        
+        correction_factor_of_angles = []
+
+        for i in range(len(mid_angles)):
+            sum_of_correction_factor_of_points = 1
+            for j in range(len(angle_of_points)):
+                difference_clockwise = mid_angles[i] - angle_of_points[j] + 360 if angle_of_points[j] > self.odom_data.angle_360 else mid_angles[i] - angle_of_points[j]
+                difference_anti_clockwise = 360 - mid_angles[i] + angle_of_points[j] if angle_of_points[j] < mid_angles[i] else angle_of_points[j] - mid_angles[i]
+
+                angle_difference = min(difference_clockwise, difference_anti_clockwise)
+                angle_difference_radians = angle_difference * pi/180
+
+                cosine_ang_diff = cos(angle_difference_radians)
+
+                correction_factor_of_point = cosine_ang_diff * visited_points_distance_diff_coefficients[j]
+
+                sum_of_correction_factor_of_points += correction_factor_of_point
+            
+            correction_factor_of_angles.append(1/sum_of_correction_factor_of_points)
+        
+        for i in range(len(widths)):
+            widths[i] *= correction_factor_of_angles[i]
+        
+        zipped = list(zip(mid_angles, widths))
+
+        zipped.sort(key=lambda x: x[1], reverse=True)
+
+        return zipped[0][0]
+        
+
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
 
                 if not len(self.lidar_data.get_space_array()) == 0:
-                    self.turn_to_angle_360_system(self.offset_space_array(self.lidar_data.get_space_array())[0][0])
+                    self.turn_to_angle_360_system(self.choose_angle())
                 else:
                     angle_to_turn = self.odom_data.angle_360 + 180
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+
+                self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
 
                 while self.can_move_forward():
                     self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
