@@ -9,6 +9,16 @@ from math import inf, pi, sqrt, sin, cos, atan2
 import numpy as np
 import time
 
+from pathlib import Path
+
+import cv2
+from cv_bridge import CvBridge, CvBridgeError
+
+from sensor_msgs.msg import Image
+
+
+
+
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 1.2
@@ -16,6 +26,8 @@ TURN_CORRECTION_SPEED = 0.3
 
 class Main():
     def __init__(self):
+        
+
         self.node_name = "explore"
 
         rospy.init_node(self.node_name)
@@ -29,6 +41,7 @@ class Main():
         self.publish_velocity = Publish_velocity()
         self.odom_data = Odom_data()
         self.lidar_data = Lidar_data()
+        self.camera = Take_photo()
 
         self.acquired_color = False
         self.color = None
@@ -114,7 +127,14 @@ class Main():
                     if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
                         return
-                    
+                     # if not self.acquired_color:
+                #     angle_to_turn = self.odom_data.angle_360 + 180
+                #     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+
+                #     self.set_color()
+                #     return
+                # else:
+                #     pass
                     if lin_speed == None:
                         self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
                     else:
@@ -149,14 +169,17 @@ class Main():
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
 
-                if not self.acquired_color:
-                    angle_to_turn = self.odom_data.angle_360 + 180
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+                # if not self.acquired_color:
+                #     angle_to_turn = self.odom_data.angle_360 + 180
+                #     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
 
-                    self.set_color()
-                    return
-                else:
-                    pass
+                #     self.set_color()
+                #     return
+                # else:
+                #     pass
+                self.camera.take_picture("test.bmp")
+                return
+
 
                 self.rate.sleep()
 
@@ -209,6 +232,56 @@ class Lidar_data():
     def scan_callback(self, scan_data):
         self.ranges = scan_data.ranges
         self.initial_data_loaded = True
+
+class Take_photo():
+   
+    def __init__(self):
+        self.cvbridge_interface = CvBridge()
+
+
+
+
+        self.bridge = CvBridge()
+        self.image_received = False
+       # self.base_image_path = Path("~/catkin_ws/src/team16/")
+        #self.base_image_path.mkdir(parents=True, exist_ok=True)
+
+        # Connect image topic
+        img_topic = "/camera/rgb/image_raw"
+        self.image_sub = rospy.Subscriber(img_topic, Image, self.callback)
+
+        # Allow up to one second to connection
+        rospy.sleep(1)
+
+
+
+    def callback(self, data):
+
+        # Convert image to OpenCV format
+        try:
+            cv_image = self.cvbridge_interface.imgmsg_to_cv2(data, "bgr8")
+        except CvBridgeError as e:
+            print(e)
+
+        self.image = cv_image
+        self.image_received = True
+
+    def take_picture(self, img_title):
+        base_image_path = Path("\catkin_ws\src\team16\photos")
+        full_image_path = base_image_path.joinpath(img_title)
+        if self.image_received:
+            cv2.imwrite(str(full_image_path), self.image)
+            cv2.imshow("hello", self.image)
+            cv2.waitKey(0)
+
+     
+     
+            
+           
+            
+           
+       
+
 
 if __name__ == '__main__':
     try:
