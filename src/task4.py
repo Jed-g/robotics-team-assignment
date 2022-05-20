@@ -20,10 +20,10 @@ from sensor_msgs.msg import Image
 
 
 FREQUENCY = 10
-LINEAR_VELOCITY = 0.25
+LINEAR_VELOCITY = 0.35
 ANGULAR_VELOCITY = 0.8
 TURN_CORRECTION_SPEED = 0.3
-COLOR_THRESHOLD_VALUE = 200
+COLOR_THRESHOLD_VALUE = 250
 ANGLE_DETECTION_THRESHOLD = 40
 DISTANCE_FROM_START_THRESHOLD = 2
 RANGE_THRESHOLD = 1.5
@@ -65,7 +65,7 @@ class Main():
 
         # Thresholds for ["Blue", "Red", "Green", "Turquoise" "Yellow" "Violet"]
         self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100), (155, 35, 225), (155, 195, 180)]
-        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255), (255, 50,255), (155, 225, 225)]
+        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255), (255, 50,255), (255, 225, 225)]
 
 
     def shutdownhook(self):
