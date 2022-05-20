@@ -42,7 +42,7 @@ class Main():
         self.publish_velocity = Publish_velocity()
         self.odom_data = Odom_data()
         self.lidar_data = Lidar_data()
-        self.camera = Take_photo()
+        self.camera = Camera()
 
         self.acquired_color = False
         self.color = None
@@ -218,6 +218,7 @@ class Main():
 
                     if self.color_visible() == None:
                         print("Unable to recognize color")
+                        return
                     else:
                         color_index, _ = self.color_visible()
 
@@ -289,7 +290,7 @@ class Lidar_data():
         self.ranges = scan_data.ranges
         self.initial_data_loaded = True
 
-class Take_photo():
+class Camera():
    
     def __init__(self):
         self.cvbridge_interface = CvBridge()
