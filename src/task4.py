@@ -23,11 +23,16 @@ FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.8
 TURN_CORRECTION_SPEED = 0.3
-COLOR_THRESHOLD_VALUE = 100
-ANGLE_DETECTION_THRESHOLD = 30
-RANGE_THRESHOLD = 2
+COLOR_THRESHOLD_VALUE = 200
+ANGLE_DETECTION_THRESHOLD = 40
+DISTANCE_FROM_START_THRESHOLD = 2
+RANGE_THRESHOLD = 1.5
 DISTANCE_FACTOR = 0.2
-REVERSE_TIME = 1.2
+REVERSE_TIME = 1.6
+HOMING_PRECISION = 0.1
+CLEARANCE_THRESHOLD = 0.32
+FORWARD_STOPPING_THRESHOLD = 0.34
+HOMING_THRESHOLD = 0.45
 
 class Main():
     def __init__(self):
@@ -56,6 +61,8 @@ class Main():
         self.starting_x = None
         self.starting_y = None
 
+        self.visited_points = []
+
         # Thresholds for ["Blue", "Red", "Green", "Turquoise" "Yellow" "Violet"]
         self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100), (155, 35, 225), (155, 195, 180)]
         self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255), (255, 50,255), (155, 225, 225)]
@@ -66,7 +73,7 @@ class Main():
         self.ctrl_c = True
         self.publish_velocity.shutdown()
 
-    def turn_to_angle_360_system(self, angle, lin_speed = None, ang_speed = None):
+    def turn_to_angle_360_system(self, angle, lin_speed = None, ang_speed = None, ignore_color = False):
         self.publish_velocity.publish_velocity()
 
         difference_clockwise = self.odom_data.angle_360 - angle + 360 if angle > self.odom_data.angle_360 else self.odom_data.angle_360 - angle
@@ -92,11 +99,11 @@ class Main():
             else:
                 self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
-            time.sleep(0.6)
+            time.sleep(1)
 
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 <= initial_angle:
-                    if self.ctrl_c:
+                    if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                     
@@ -107,7 +114,7 @@ class Main():
 
             
             while self.odom_data.angle_360 > angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                 
@@ -117,7 +124,7 @@ class Main():
                     self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
             while self.odom_data.angle_360 < angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                 
@@ -135,11 +142,11 @@ class Main():
             else:
                 self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
-            time.sleep(0.6)
+            time.sleep(1)
 
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 >= initial_angle:
-                    if self.ctrl_c:
+                    if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                     
@@ -149,7 +156,7 @@ class Main():
                         self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
             while self.odom_data.angle_360 < angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
 
@@ -159,7 +166,7 @@ class Main():
                     self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
             while self.odom_data.angle_360 > angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                 
@@ -169,6 +176,19 @@ class Main():
                     self.publish_velocity.publish_velocity(lin_speed, TURN_CORRECTION_SPEED*(-ANGULAR_VELOCITY) if ang_speed == None else TURN_CORRECTION_SPEED*(-ang_speed))
 
             self.publish_velocity.publish_velocity()
+
+    def check_if_target_visible(self):
+        angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+        angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+        difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+        difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
+        
+        angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+        if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+            return True
+        
+        return False
 
     def color_visible(self):
         
@@ -200,7 +220,7 @@ class Main():
                 index_of_best_matching = i
 
         if index_of_best_matching == -1 or moments[index_of_best_matching]["m00"] < COLOR_THRESHOLD_VALUE:
-            return None
+            return -1, 0
 
         cy = moments[index_of_best_matching]['m10'] / (moments[index_of_best_matching]['m00'] + 1e-5)
 
@@ -270,6 +290,35 @@ class Main():
 
         return zipped[0][0]
 
+    def can_move_forward(self):
+        data = list(self.lidar_data.ranges[-50:])
+        data.extend(list(self.lidar_data.ranges[:50]))
+
+        if min(data) < CLEARANCE_THRESHOLD:
+            return False
+
+        data = list(self.lidar_data.ranges[-2:])
+        data.extend(list(self.lidar_data.ranges[:2]))
+
+        if min(data) < FORWARD_STOPPING_THRESHOLD:
+            return False
+
+        return True
+
+    def offset_space_array(self, array):
+        if array == None:
+            return None
+
+        for i in range(len(array)):
+            offset_angle = array[i][0] + self.odom_data.angle_360
+            corrected_offset_angle = offset_angle - 360 if offset_angle >= 360 else offset_angle
+            array[i] = (corrected_offset_angle, array[i][1])
+        
+        return array
+
+    def distance_to_start(self):
+        return sqrt((self.starting_x-self.odom_data.posx)**2+(self.starting_y - self.odom_data.posy)**2)
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
@@ -278,8 +327,8 @@ class Main():
                     self.starting_x = self.odom_data.posx
                     self.starting_y = self.odom_data.posy
                     
-                    angle_to_turn = self.odom_data.angle_360 + 180
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+                    angle_to_turn = self.odom_data.angle_360 + 160
+                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=True)
 
                     if self.color_visible() == None:
                         print("Unable to recognize color")
@@ -304,10 +353,24 @@ class Main():
 
                         self.acquired_color = True
                     
+                    print(f"SEARCH INITIATED: The target beacon colour is {self.color}.")
+
                     time.sleep(1)
-                    angle_to_turn = self.odom_data.angle_360 + 180
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
-                else:
+                    angle_to_turn = self.odom_data.angle_360 - 160
+                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else angle_to_turn + 360, ignore_color=True)
+
+                    while self.can_move_forward():
+                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                    self.publish_velocity.publish_velocity()
+
+                    time.sleep(0.5)
+
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(0.5)
+                    self.publish_velocity.publish_velocity()
+
+
+                elif not self.target_found:
                     angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
                     angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
                     difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
@@ -315,7 +378,7 @@ class Main():
 
                     angle_difference = min(difference_clockwise, difference_anti_clockwise)
 
-                    if self.color_visible() == None or self.color_visible()[0] != self.color_index or (self.color_visible()[0] == self.color_index and angle_difference < ANGLE_DETECTION_THRESHOLD):
+                    if self.color_visible()[0] != self.color_index or (self.color_visible()[0] == self.color_index and angle_difference < ANGLE_DETECTION_THRESHOLD) or self.distance_to_start() < DISTANCE_FROM_START_THRESHOLD:
                         if not len(self.lidar_data.get_space_array()) == 0:
                             self.turn_to_angle_360_system(self.choose_angle())
                         else:
@@ -324,23 +387,99 @@ class Main():
 
                         self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
 
-                        while self.can_move_forward():
-                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                            if self.ctrl_c:
-                                break
+                        angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+                        angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+                        difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+                        difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
                         
-                        if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                        angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+                        if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                            self.publish_velocity.publish_velocity()
+                        else:
+                            while self.can_move_forward():
+                                self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+
+                                angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+                                angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+                                difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+                                difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
+
+                                angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+                                if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                                    self.publish_velocity.publish_velocity()
+                                    break
+
+                                if self.ctrl_c:
+                                    break
+                        
+                        if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                            pass
+
+                        elif self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
                             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
                             time.sleep(REVERSE_TIME)
                         elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
                             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
                             time.sleep(0.5*REVERSE_TIME)
                         else:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
                             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
                             time.sleep(0.2*REVERSE_TIME)
                         self.publish_velocity.publish_velocity()
 
+                    elif self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                        print("TARGET DETECTED: Beaconing initiated.")
+                        self.target_found = True
+                        continue
 
+                else:
+                    _, angular_vel = self.color_visible()
+
+                    while abs(angular_vel) > HOMING_PRECISION:
+                        _, angular_vel = self.color_visible()
+                        self.publish_velocity.publish_velocity(0, angular_vel)
+
+                    while self.can_move_forward():
+                        _, angular_vel = self.color_visible()
+                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, angular_vel)
+
+                    if self.lidar_data.ranges[0] > HOMING_THRESHOLD:
+                        self.target_found = False
+                        angle_to_turn = self.odom_data.angle_360 + 160
+                        self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=True)
+                        self.publish_velocity.publish_velocity()
+                        time.sleep(1)
+
+                        while self.can_move_forward():
+                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                        
+                        if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(REVERSE_TIME)
+                        elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.5*REVERSE_TIME)
+                        else:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.2*REVERSE_TIME)
+                        self.publish_velocity.publish_velocity()
+
+                    else:
+                        print("BEACONING COMPLETE: The robot has now stopped.")
+                        return
 
                 self.rate.sleep()
 
