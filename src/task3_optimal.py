@@ -9,9 +9,9 @@ from math import inf, pi, sqrt, sin, cos, atan2
 import numpy as np
 import time
 
-FREQUENCY = 10
+FREQUENCY = 2
 LINEAR_VELOCITY = 0.25
-ANGULAR_VELOCITY = 1.2
+ANGULAR_VELOCITY = 0.5
 TURN_CORRECTION_SPEED = 0.3
 
 class Main():
@@ -36,13 +36,17 @@ class Main():
         self.publish_velocity.shutdown()
 
     def main_loop(self):
+   
         while not self.ctrl_c:
+
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
 
                 robot_direction = 0
+               
                 front = min(self.lidar_data.front_arc)
-                left = self.lidar_data.ranges[90]
-                right = self.lidar_data.ranges[270]
+                left = np.mean(self.lidar_data.ranges[0:90])
+                right = np.mean(self.lidar_data.ranges[-270:])
+           
 
                 avoid = 0.6
 
@@ -51,36 +55,50 @@ class Main():
                 elif robot_direction == 0:
                     if right < avoid:
                         robot_direction = 1
+                        #print(self.lidar_data.front_arc)
+                        #(sum(self.lidar_data.front_arc)/len(self.lidar_data.front_arc)
+
+                        
+                        
                         while not (min(self.lidar_data.front_arc) < avoid):
                             self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            print("first")
                     if left < avoid:
                         robot_direction = -1
                         while not (min(self.lidar_data.front_arc) < avoid):
                             self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            print("left<avoid")
                 elif left < 1 and right < 1 and front > 1:
                         while not (min(self.lidar_data.front_arc) < avoid):
                             self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            print("left and right")
                 
                 self.publish_velocity.publish_velocity()
 
                 if left > 1 and right > 1 and front < 0.7:
+                    print("1")
                     if self.lidar_data.left_avg > self.lidar_data.right_avg:
                         self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
                     elif self.lidar_data.left_avg < self.lidar_data.right_avg:
                         self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
                 else:
+                   
                     if left > right:
                         self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+                        print("2.1")
                     elif front < 1 and left > 1 and right < 1:
                         self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+                        print("2.2")
                     elif right > left:
                         self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+                        print("2.3")
                     elif front < 1 and left < 1 and right > 1:
                         self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+                        print("2.4")
 
             
-                self.publish_velocity.publish_velocity()
-
+                #self.publish_velocity.publish_velocity()
+               
                 self.rate.sleep()
 
 
@@ -140,6 +158,7 @@ class Lidar_data():
         front_arc_partial = list(self.ranges[20::-1])
         front_arc_partial.extend(list(self.ranges[:-20:-1]))
         self.front_arc = front_arc_partial
+       # print(front_arc_partial)
 
         min_index = 0
         _min = inf
