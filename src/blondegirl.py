@@ -113,6 +113,7 @@ class Task3:
                         
                     else:
                         self.vel_cmd.linear.x = 0.22
+                        print("got to this point")
                         self.vel_cmd.angular.z = 0.0
                         status = "No front wall detected, moving forward"
                         
