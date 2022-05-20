@@ -24,6 +24,10 @@ LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.8
 TURN_CORRECTION_SPEED = 0.3
 COLOR_THRESHOLD_VALUE = 100
+ANGLE_DETECTION_THRESHOLD = 30
+RANGE_THRESHOLD = 2
+DISTANCE_FACTOR = 0.2
+REVERSE_TIME = 1.2
 
 class Main():
     def __init__(self):
@@ -46,6 +50,11 @@ class Main():
 
         self.acquired_color = False
         self.color = None
+        self.color_index = None
+        self.target_found = False
+
+        self.starting_x = None
+        self.starting_y = None
 
         # Thresholds for ["Blue", "Red", "Green", "Turquoise"]
         self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100)]
@@ -207,12 +216,68 @@ class Main():
             ang_vel = -1
         
         return index_of_best_matching, ang_vel
+    
+    def choose_angle(self):
+        current_x, current_y = self.odom_data.posx, self.odom_data.posy
+
+        space_array = self.offset_space_array(self.lidar_data.get_space_array())
+
+        mid_angles = list(map(lambda x: x[0], space_array))
+        widths = list(map(lambda x: x[1], space_array))
+
+        visited_points_distance_diff_coefficients = []
+        angle_of_points = []
+
+        for point_x, point_y in self.visited_points:
+            euc_distance = sqrt((current_x - point_x)**2 + (current_y-point_y)**2)
+
+            distance_inverse = 1
+            if euc_distance != 0:
+                distance_inverse = 1/(euc_distance)**DISTANCE_FACTOR
+
+            visited_points_distance_diff_coefficients.append(distance_inverse)
+
+            angle_radians = atan2(point_y - current_y, point_x - current_x)
+            angle_degrees = (angle_radians if angle_radians >= 0 else angle_radians + 2*pi) * 180 / pi
+
+            angle_of_points.append(angle_degrees)
+        
+        correction_factor_of_angles = []
+
+        for i in range(len(mid_angles)):
+            sum_of_correction_factor_of_points = 1
+            for j in range(len(angle_of_points)):
+                difference_clockwise = mid_angles[i] - angle_of_points[j] + 360 if angle_of_points[j] > mid_angles[i] else mid_angles[i] - angle_of_points[j]
+                difference_anti_clockwise = 360 - mid_angles[i] + angle_of_points[j] if angle_of_points[j] < mid_angles[i] else angle_of_points[j] - mid_angles[i]
+
+                angle_difference = min(difference_clockwise, difference_anti_clockwise)
+                angle_difference_radians = angle_difference * pi/180
+
+                cosine_ang_diff = cos(angle_difference_radians)
+
+                correction_factor_of_point = cosine_ang_diff * visited_points_distance_diff_coefficients[j]
+
+                sum_of_correction_factor_of_points += correction_factor_of_point
+            
+            correction_factor_of_angles.append(1/sum_of_correction_factor_of_points)
+        
+        for i in range(len(widths)):
+            widths[i] *= correction_factor_of_angles[i]
+        
+        zipped = list(zip(mid_angles, widths))
+
+        zipped.sort(key=lambda x: x[1], reverse=True)
+
+        return zipped[0][0]
 
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
 
                 if not self.acquired_color:
+                    self.starting_x = self.odom_data.posx
+                    self.starting_y = self.odom_data.posy
+                    
                     angle_to_turn = self.odom_data.angle_360 + 180
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
 
@@ -223,20 +288,55 @@ class Main():
                         color_index, _ = self.color_visible()
 
                         if color_index == 0:
-                            self.acquired_color = "BLUE"
+                            self.color = "BLUE"
                         elif color_index == 1:
-                            self.acquired_color = "RED"
+                            self.color = "RED"
                         elif color_index == 2:
-                            self.acquired_color = "GREEN"
+                            self.color = "GREEN"
                         else:
-                            self.acquired_color = "TURQUOISE"
+                            self.color = "TURQUOISE"
+
+                        self.color_index = color_index
+
+                        self.acquired_color = True
                     
                     time.sleep(1)
                     angle_to_turn = self.odom_data.angle_360 + 180
                     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
-                    print(self.acquired_color)
                 else:
-                    pass
+                    angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+                    angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+                    difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+                    difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
+
+                    angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+                    if self.color_visible() == None or self.color_visible()[0] != self.color_index or (self.color_visible()[0] == self.color_index and angle_difference < ANGLE_DETECTION_THRESHOLD):
+                        if not len(self.lidar_data.get_space_array()) == 0:
+                            self.turn_to_angle_360_system(self.choose_angle())
+                        else:
+                            angle_to_turn = self.odom_data.angle_360 + 180
+                            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+
+                        self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
+
+                        while self.can_move_forward():
+                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            if self.ctrl_c:
+                                break
+                        
+                        if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(REVERSE_TIME)
+                        elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.5*REVERSE_TIME)
+                        else:
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.2*REVERSE_TIME)
+                        self.publish_velocity.publish_velocity()
+
+
 
                 self.rate.sleep()
 
@@ -289,6 +389,59 @@ class Lidar_data():
     def scan_callback(self, scan_data):
         self.ranges = scan_data.ranges
         self.initial_data_loaded = True
+
+    def get_space_array(self):
+        previous_inf = False
+
+        angle_before_first_obstacle = 0
+        first_angle_set = False
+
+        angle_array = []
+        beginning_of_current_space = None
+
+        for i, _range in enumerate(self.ranges):
+            if _range > RANGE_THRESHOLD:
+                if not first_angle_set:
+                    angle_before_first_obstacle += 1
+
+                if not previous_inf:
+                    beginning_of_current_space = i
+                    previous_inf = True
+
+            else:
+                if not first_angle_set:
+                    first_angle_set = True
+                    previous_inf = False
+
+                if previous_inf and first_angle_set:
+                    mid_angle = beginning_of_current_space + (i - beginning_of_current_space)/2
+                    size_of_angle = i - beginning_of_current_space
+                    
+                    angle_array.append((mid_angle, size_of_angle))
+                    beginning_of_current_space = None
+                
+                if previous_inf:
+                    previous_inf = False
+        
+        if not first_angle_set:
+            return [(0, 360)]
+
+        angle_after_last_obstacle = 0 if beginning_of_current_space == None else 360 - beginning_of_current_space
+
+        first_and_last_angle = angle_after_last_obstacle + angle_before_first_obstacle
+
+        beginning_of_last_angle = 360 - angle_after_last_obstacle
+
+        mid_angle_before_correction = beginning_of_last_angle + first_and_last_angle/2
+
+        mid_angle_of_first_and_last_angle = mid_angle_before_correction - 360 if mid_angle_before_correction >= 360 else mid_angle_before_correction
+        
+        if first_and_last_angle != 0:
+            angle_array.append((mid_angle_of_first_and_last_angle, first_and_last_angle))
+
+        angle_array.sort(key=lambda x: x[1], reverse=True)
+
+        return angle_array
 
 class Camera():
    

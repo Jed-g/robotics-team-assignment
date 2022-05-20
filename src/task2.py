@@ -297,7 +297,7 @@ class Main():
         for i in range(len(mid_angles)):
             sum_of_correction_factor_of_points = 1
             for j in range(len(angle_of_points)):
-                difference_clockwise = mid_angles[i] - angle_of_points[j] + 360 if angle_of_points[j] > self.odom_data.angle_360 else mid_angles[i] - angle_of_points[j]
+                difference_clockwise = mid_angles[i] - angle_of_points[j] + 360 if angle_of_points[j] > mid_angles[i] else mid_angles[i] - angle_of_points[j]
                 difference_anti_clockwise = 360 - mid_angles[i] + angle_of_points[j] if angle_of_points[j] < mid_angles[i] else angle_of_points[j] - mid_angles[i]
 
                 angle_difference = min(difference_clockwise, difference_anti_clockwise)
