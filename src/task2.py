@@ -75,6 +75,13 @@ class Main():
         if turn_clockwise:
             initial_angle = self.odom_data.angle_360
 
+            if lin_speed == None:
+                self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+            else:
+                self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+
+            time.sleep(0.6)
+
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 <= initial_angle:
                     if self.ctrl_c:
@@ -86,7 +93,7 @@ class Main():
                     else:
                         self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
-
+            
             while self.odom_data.angle_360 > angle:
                 if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
@@ -110,6 +117,13 @@ class Main():
             self.publish_velocity.publish_velocity()
         else:
             initial_angle = self.odom_data.angle_360
+
+            if lin_speed == None:
+                self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+            else:
+                self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+
+            time.sleep(0.6)
 
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 >= initial_angle:
