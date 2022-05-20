@@ -35,6 +35,16 @@ class Main():
         self.ctrl_c = True
         self.publish_velocity.shutdown()
 
+    
+    
+    def can_move_forward(self):
+        data = list(self.lidar_data.ranges[360-30:])
+        data.extend(list(self.lidar_data.ranges[:30]))
+
+        if min(data) < 0.4:
+            return False
+        return True
+
     def main_loop(self):
    
         while not self.ctrl_c:
@@ -44,8 +54,8 @@ class Main():
                 robot_direction = 0
                
                 front = min(self.lidar_data.front_arc)
-                left = np.mean(self.lidar_data.ranges[0:90])
-                right = np.mean(self.lidar_data.ranges[-270:])
+                left = np.median(self.lidar_data.ranges[0:90])
+                right = np.median(self.lidar_data.ranges[-270:])
            
 
                 avoid = 0.6
@@ -59,18 +69,21 @@ class Main():
                         #(sum(self.lidar_data.front_arc)/len(self.lidar_data.front_arc)
 
                         
-                        
                         while not (min(self.lidar_data.front_arc) < avoid):
-                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                            print("first")
-                    if left < avoid:
-                        robot_direction = -1
-                        while not (min(self.lidar_data.front_arc) < avoid):
-                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            if self.can_move_forward:
+                                self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            else:
+                                pass
+
+                            
                             print("left<avoid")
                 elif left < 1 and right < 1 and front > 1:
                         while not (min(self.lidar_data.front_arc) < avoid):
-                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            if self.can_move_forward:
+                                self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            else:
+                                pass
+                            
                             print("left and right")
                 
                 self.publish_velocity.publish_velocity()
@@ -78,22 +91,49 @@ class Main():
                 if left > 1 and right > 1 and front < 0.7:
                     print("1")
                     if self.lidar_data.left_avg > self.lidar_data.right_avg:
-                        self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+                        if self.can_move_forward:
+                            self.publish_velocity.publish_velocity(0.04, ANGULAR_VELOCITY)
+                        else:
+                            self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
                     elif self.lidar_data.left_avg < self.lidar_data.right_avg:
-                        self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+                        if self.can_move_forward:
+                            self.publish_velocity.publish_velocity(0.04, -ANGULAR_VELOCITY)
+                        else:
+                            self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+
                 else:
                    
                     if left > right:
-                        self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+                        if self.can_move_forward:
+
+                            self.publish_velocity.publish_velocity(0.04, ANGULAR_VELOCITY)
+                        else:
+                            self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+
                         print("2.1")
                     elif front < 1 and left > 1 and right < 1:
-                        self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+                        if self.can_move_forward:
+                            self.publish_velocity.publish_velocity(0.04, ANGULAR_VELOCITY)
+                        else:
+                            self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
                         print("2.2")
+
                     elif right > left:
-                        self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+                        if self.can_move_forward:
+                            self.publish_velocity.publish_velocity(0.04, -ANGULAR_VELOCITY)
+                        else:
+                            self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+
+
+                        
                         print("2.3")
                     elif front < 1 and left < 1 and right > 1:
-                        self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+                        if self.can_move_forward:
+                            self.publish_velocity.publish_velocity(0.1, -ANGULAR_VELOCITY)
+                        else:
+                            self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
+
+                        
                         print("2.4")
 
             
