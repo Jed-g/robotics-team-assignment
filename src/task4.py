@@ -23,6 +23,7 @@ FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 1.2
 TURN_CORRECTION_SPEED = 0.3
+COLOR_THRESHOLD_VALUE = 100
 
 class Main():
     def __init__(self):
@@ -167,14 +168,14 @@ class Main():
 
             self.publish_velocity.publish_velocity()
 
-    def set_color(self):
+    def color_visible(self):
         try:
             cv_img = self.cvbridge_interface.imgmsg_to_cv2(img_data, desired_encoding="bgr8")
         except CvBridgeError as e:
             print(e)
         
         height, width, _ = cv_img.shape
-        crop_width = width - 800
+        crop_width = width
         crop_height = 400
         crop_x = int((width/2) - (crop_width/2))
         crop_y = int((height/2) - (crop_height/2))
@@ -182,24 +183,36 @@ class Main():
         crop_img = cv_img[crop_y:crop_y+crop_height, crop_x:crop_x+crop_width]
         hsv_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
 
-        mask = None
+        moments = []
 
-        for i in range(4):
-            if i == 0:
-                mask = cv2.inRange(hsv_img, self.lower[i], self.upper[i])
-            else:
-                mask = mask + cv2.inRange(hsv_img, self.lower[i], self.upper[i])
+        for i in range(len(self.lower)):
+            moments.append(cv2.moments(cv2.inRange(hsv_img, self.lower[i], self.upper[i])))
+     
+        index_of_best_matching = -1
+        highest_matching_color_value = 0
 
-        m = cv2.moments(mask)
-            
-        self.m00 = m["m00"]
-        self.cy = m["m10"] / (m["m00"] + 1e-5)
+        for i, v in enumerate(moments):
+            if v["m00"] > highest_matching_color_value:
+                highest_matching_color_value = v["m00"]
+                index_of_best_matching = i
 
-        if self.m00 > self.m00_min:
-            cv2.circle(crop_img, (int(self.cy), 200), 10, (0, 0, 255), 2)
+        if index_of_best_matching == -1 or moments[index_of_best_matching]["m00"] < COLOR_THRESHOLD_VALUE:
+            return None
+
+        cy = moments[index_of_best_matching]['m10'] / (moments[index_of_best_matching]['m00'] + 1e-5)
+
+        y_error = (crop_width / 2) - cy
+
+        kp = 1.0 / 2000.0
+
+        ang_vel = kp * y_error
+
+        if ang_vel > 1:
+            ang_vel = 1
+        if ang_vel < -1:
+            ang_vel = -1
         
-        cv2.imshow("cropped image", crop_img)
-        cv2.waitKey(1)
+        return index_of_best_matching, ang_vel
 
     def main_loop(self):
         while not self.ctrl_c:
