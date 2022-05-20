@@ -1,3 +1,3 @@
 <launch>
-    <node pkg="team16" type="task3_suboptimal.py" name="maze_explore" output="screen"/>
+    <node pkg="team16" type="task3_optimal.py" name="maze_explore" output="screen"/>
 </launch>
