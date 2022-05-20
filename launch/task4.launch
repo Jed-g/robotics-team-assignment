@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="team16" type="task4.py" name="color_beam_recognition" output="screen"/>
+</launch>

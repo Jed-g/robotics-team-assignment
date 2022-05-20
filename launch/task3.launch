@@ -1,3 +1,7 @@
 <launch>
+<<<<<<< HEAD
     <node pkg="team16" type="blondegirl.py" name="task3" output="screen"/>
+=======
+    <node pkg="team16" type="task3_suboptimal.py" name="maze_explore" output="screen"/>
+>>>>>>> 12a38cb6a2f29bae7eb966b27a0f4606ab455243
 </launch>
