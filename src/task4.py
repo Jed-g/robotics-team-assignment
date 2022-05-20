@@ -46,6 +46,11 @@ class Main():
         self.acquired_color = False
         self.color = None
 
+        # Thresholds for ["Blue", "Red", "Green", "Turquoise"]
+        self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100)]
+        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255)]
+
+
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
         self.ctrl_c = True
@@ -163,7 +168,38 @@ class Main():
             self.publish_velocity.publish_velocity()
 
     def set_color(self):
-        pass
+        try:
+            cv_img = self.cvbridge_interface.imgmsg_to_cv2(img_data, desired_encoding="bgr8")
+        except CvBridgeError as e:
+            print(e)
+        
+        height, width, _ = cv_img.shape
+        crop_width = width - 800
+        crop_height = 400
+        crop_x = int((width/2) - (crop_width/2))
+        crop_y = int((height/2) - (crop_height/2))
+
+        crop_img = cv_img[crop_y:crop_y+crop_height, crop_x:crop_x+crop_width]
+        hsv_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
+
+        mask = None
+
+        for i in range(4):
+            if i == 0:
+                mask = cv2.inRange(hsv_img, self.lower[i], self.upper[i])
+            else:
+                mask = mask + cv2.inRange(hsv_img, self.lower[i], self.upper[i])
+
+        m = cv2.moments(mask)
+            
+        self.m00 = m["m00"]
+        self.cy = m["m10"] / (m["m00"] + 1e-5)
+
+        if self.m00 > self.m00_min:
+            cv2.circle(crop_img, (int(self.cy), 200), 10, (0, 0, 255), 2)
+        
+        cv2.imshow("cropped image", crop_img)
+        cv2.waitKey(1)
 
     def main_loop(self):
         while not self.ctrl_c:
