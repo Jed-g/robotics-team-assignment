@@ -76,7 +76,7 @@ class Main():
                                 pass
 
                             
-                            print("left<avoid")
+                            #print("left<avoid")
                 elif left < 1 and right < 1 and front > 1:
                         while not (min(self.lidar_data.front_arc) < avoid):
                             if self.can_move_forward:
@@ -84,12 +84,12 @@ class Main():
                             else:
                                 pass
                             
-                            print("left and right")
+                           # print("left and right")
                 
                 self.publish_velocity.publish_velocity()
 
                 if left > 1 and right > 1 and front < 0.7:
-                    print("1")
+                   # print("1")
                     if self.lidar_data.left_avg > self.lidar_data.right_avg:
                         if self.can_move_forward:
                             self.publish_velocity.publish_velocity(0.04, ANGULAR_VELOCITY)
@@ -110,13 +110,13 @@ class Main():
                         else:
                             self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
 
-                        print("2.1")
+                       # print("2.1")
                     elif front < 1 and left > 1 and right < 1:
                         if self.can_move_forward:
                             self.publish_velocity.publish_velocity(0.04, ANGULAR_VELOCITY)
                         else:
                             self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
-                        print("2.2")
+                        #print("2.2")
 
                     elif right > left:
                         if self.can_move_forward:
@@ -126,7 +126,7 @@ class Main():
 
 
                         
-                        print("2.3")
+                        #print("2.3")
                     elif front < 1 and left < 1 and right > 1:
                         if self.can_move_forward:
                             self.publish_velocity.publish_velocity(0.1, -ANGULAR_VELOCITY)
@@ -134,7 +134,7 @@ class Main():
                             self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY)
 
                         
-                        print("2.4")
+                       # print("2.4")
 
             
                 #self.publish_velocity.publish_velocity()
