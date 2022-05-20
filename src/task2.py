@@ -26,7 +26,7 @@ CONVEX_CORNER_CORRECTION_SPEED = 1
 STOP_TO_CORRECT_ANGLE_THRESHOLD = 10
 REVERSE_TIME = 1.8
 TURN_CORRECTION_SPEED = 0.3
-DISTANCE_FACTOR = 0.2
+DISTANCE_FACTOR = 0.1
 
 class Main():
     def __init__(self):
@@ -266,7 +266,11 @@ class Main():
 
         for point_x, point_y in self.visited_points:
             euc_distance = sqrt((current_x - point_x)**2 + (current_y-point_y)**2)
-            distance_inverse = 1/(euc_distance)**DISTANCE_FACTOR
+
+            distance_inverse = 1
+            if euc_distance != 0:
+                distance_inverse = 1/(euc_distance)**DISTANCE_FACTOR
+
             visited_points_distance_diff_coefficients.append(distance_inverse)
 
             angle_radians = atan2(point_y - current_y, point_x - current_x)
@@ -320,8 +324,16 @@ class Main():
                     self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
                     if self.ctrl_c:
                         break
-                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                time.sleep(REVERSE_TIME)
+                
+                if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(REVERSE_TIME)
+                elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(0.5*REVERSE_TIME)
+                else:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(0.2*REVERSE_TIME)
                 self.publish_velocity.publish_velocity()
 
                 self.rate.sleep()

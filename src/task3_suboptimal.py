@@ -11,8 +11,8 @@ import time
 
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
-ANGULAR_VELOCITY = 0.4
-RANGE_THRESHOLD = 0.7
+ANGULAR_VELOCITY = 1
+RANGE_THRESHOLD = 0.6
 CLEARANCE_THRESHOLD = 0.35
 FORWARD_STOPPING_THRESHOLD = 0.45
 WALL_PROXIMITY_THRESHOLD = 0.4
@@ -24,7 +24,8 @@ CONVEX_CORNER_THRESHOLD = 0.3
 ANGLE_CORRECTION_SPEED = 1
 CONVEX_CORNER_CORRECTION_SPEED = 1
 STOP_TO_CORRECT_ANGLE_THRESHOLD = 10
-REVERSE_TIME = 0.5
+REVERSE_TIME = 0.8
+TURN_CORRECTION_SPEED = 0.3
 
 class Main():
     def __init__(self):
@@ -94,6 +95,16 @@ class Main():
                 else:
                     self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
+            while self.odom_data.angle_360 < angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(0, TURN_CORRECTION_SPEED*ANGULAR_VELOCITY if ang_speed == None else TURN_CORRECTION_SPEED*ang_speed)
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed, TURN_CORRECTION_SPEED*ANGULAR_VELOCITY if ang_speed == None else TURN_CORRECTION_SPEED*ang_speed)
+
             self.publish_velocity.publish_velocity()
         else:
             initial_angle = self.odom_data.angle_360
@@ -118,6 +129,16 @@ class Main():
                     self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
                 else:
                     self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+
+            while self.odom_data.angle_360 > angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(0, TURN_CORRECTION_SPEED*(-ANGULAR_VELOCITY) if ang_speed == None else TURN_CORRECTION_SPEED*(-ang_speed))
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed, TURN_CORRECTION_SPEED*(-ANGULAR_VELOCITY) if ang_speed == None else TURN_CORRECTION_SPEED*(-ang_speed))
 
             self.publish_velocity.publish_velocity()
 
@@ -244,8 +265,17 @@ class Main():
                     self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
                     if self.ctrl_c:
                         break
-                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                time.sleep(REVERSE_TIME)
+                
+                if self.lidar_data.ranges[180] > 0.5 and self.lidar_data.ranges[130] > 0.5 and self.lidar_data.ranges[230] > 0.5:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(REVERSE_TIME)
+                elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(0.5*REVERSE_TIME)
+                else:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(0.2*REVERSE_TIME)
+                
                 self.publish_velocity.publish_velocity()
 
                 self.rate.sleep()
