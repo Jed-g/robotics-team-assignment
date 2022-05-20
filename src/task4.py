@@ -21,8 +21,13 @@ from sensor_msgs.msg import Image
 
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
-ANGULAR_VELOCITY = 1.2
+ANGULAR_VELOCITY = 0.8
 TURN_CORRECTION_SPEED = 0.3
+COLOR_THRESHOLD_VALUE = 100
+ANGLE_DETECTION_THRESHOLD = 30
+RANGE_THRESHOLD = 2
+DISTANCE_FACTOR = 0.2
+REVERSE_TIME = 1.2
 
 class Main():
     def __init__(self):
@@ -41,14 +46,19 @@ class Main():
         self.publish_velocity = Publish_velocity()
         self.odom_data = Odom_data()
         self.lidar_data = Lidar_data()
-        self.camera = Take_photo()
+        self.camera = Camera()
 
         self.acquired_color = False
         self.color = None
+        self.color_index = None
+        self.target_found = False
 
-        # Thresholds for ["Blue", "Red", "Green", "Turquoise"]
-        self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100)]
-        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255)]
+        self.starting_x = None
+        self.starting_y = None
+
+        # Thresholds for ["Blue", "Red", "Green", "Turquoise" "Yellow" "Violet"]
+        self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100), (155, 35, 225), (155, 195, 180)]
+        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255), (255, 50,255), (155, 225, 225)]
 
 
     def shutdownhook(self):
@@ -132,14 +142,7 @@ class Main():
                     if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
                         return
-                     # if not self.acquired_color:
-                #     angle_to_turn = self.odom_data.angle_360 + 180
-                #     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
-
-                #     self.set_color()
-                #     return
-                # else:
-                #     pass
+                    
                     if lin_speed == None:
                         self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
                     else:
@@ -167,14 +170,15 @@ class Main():
 
             self.publish_velocity.publish_velocity()
 
-    def set_color(self):
-        try:
-            cv_img = self.cvbridge_interface.imgmsg_to_cv2(img_data, desired_encoding="bgr8")
-        except CvBridgeError as e:
-            print(e)
+    def color_visible(self):
+        
+        if not self.camera.image_received:
+            return None
+
+        cv_img = self.camera.image
         
         height, width, _ = cv_img.shape
-        crop_width = width - 800
+        crop_width = width
         crop_height = 400
         crop_x = int((width/2) - (crop_width/2))
         crop_y = int((height/2) - (crop_height/2))
@@ -182,39 +186,160 @@ class Main():
         crop_img = cv_img[crop_y:crop_y+crop_height, crop_x:crop_x+crop_width]
         hsv_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
 
-        mask = None
+        moments = []
 
-        for i in range(4):
-            if i == 0:
-                mask = cv2.inRange(hsv_img, self.lower[i], self.upper[i])
-            else:
-                mask = mask + cv2.inRange(hsv_img, self.lower[i], self.upper[i])
+        for i in range(len(self.lower)):
+            moments.append(cv2.moments(cv2.inRange(hsv_img, self.lower[i], self.upper[i])))
+     
+        index_of_best_matching = -1
+        highest_matching_color_value = 0
 
-        m = cv2.moments(mask)
-            
-        self.m00 = m["m00"]
-        self.cy = m["m10"] / (m["m00"] + 1e-5)
+        for i, v in enumerate(moments):
+            if v["m00"] > highest_matching_color_value:
+                highest_matching_color_value = v["m00"]
+                index_of_best_matching = i
 
-        if self.m00 > self.m00_min:
-            cv2.circle(crop_img, (int(self.cy), 200), 10, (0, 0, 255), 2)
+        if index_of_best_matching == -1 or moments[index_of_best_matching]["m00"] < COLOR_THRESHOLD_VALUE:
+            return None
+
+        cy = moments[index_of_best_matching]['m10'] / (moments[index_of_best_matching]['m00'] + 1e-5)
+
+        y_error = (crop_width / 2) - cy
+
+        kp = 1.0 / 2000.0
+
+        ang_vel = kp * y_error
+
+        if ang_vel > 1:
+            ang_vel = 1
+        if ang_vel < -1:
+            ang_vel = -1
         
-        cv2.imshow("cropped image", crop_img)
-        cv2.waitKey(1)
+        return index_of_best_matching, ang_vel
+    
+    def choose_angle(self):
+        current_x, current_y = self.odom_data.posx, self.odom_data.posy
+
+        space_array = self.offset_space_array(self.lidar_data.get_space_array())
+
+        mid_angles = list(map(lambda x: x[0], space_array))
+        widths = list(map(lambda x: x[1], space_array))
+
+        visited_points_distance_diff_coefficients = []
+        angle_of_points = []
+
+        for point_x, point_y in self.visited_points:
+            euc_distance = sqrt((current_x - point_x)**2 + (current_y-point_y)**2)
+
+            distance_inverse = 1
+            if euc_distance != 0:
+                distance_inverse = 1/(euc_distance)**DISTANCE_FACTOR
+
+            visited_points_distance_diff_coefficients.append(distance_inverse)
+
+            angle_radians = atan2(point_y - current_y, point_x - current_x)
+            angle_degrees = (angle_radians if angle_radians >= 0 else angle_radians + 2*pi) * 180 / pi
+
+            angle_of_points.append(angle_degrees)
+        
+        correction_factor_of_angles = []
+
+        for i in range(len(mid_angles)):
+            sum_of_correction_factor_of_points = 1
+            for j in range(len(angle_of_points)):
+                difference_clockwise = mid_angles[i] - angle_of_points[j] + 360 if angle_of_points[j] > mid_angles[i] else mid_angles[i] - angle_of_points[j]
+                difference_anti_clockwise = 360 - mid_angles[i] + angle_of_points[j] if angle_of_points[j] < mid_angles[i] else angle_of_points[j] - mid_angles[i]
+
+                angle_difference = min(difference_clockwise, difference_anti_clockwise)
+                angle_difference_radians = angle_difference * pi/180
+
+                cosine_ang_diff = cos(angle_difference_radians)
+
+                correction_factor_of_point = cosine_ang_diff * visited_points_distance_diff_coefficients[j]
+
+                sum_of_correction_factor_of_points += correction_factor_of_point
+            
+            correction_factor_of_angles.append(1/sum_of_correction_factor_of_points)
+        
+        for i in range(len(widths)):
+            widths[i] *= correction_factor_of_angles[i]
+        
+        zipped = list(zip(mid_angles, widths))
+
+        zipped.sort(key=lambda x: x[1], reverse=True)
+
+        return zipped[0][0]
 
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
 
-                # if not self.acquired_color:
-                #     angle_to_turn = self.odom_data.angle_360 + 180
-                #     self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+                if not self.acquired_color:
+                    self.starting_x = self.odom_data.posx
+                    self.starting_y = self.odom_data.posy
+                    
+                    angle_to_turn = self.odom_data.angle_360 + 180
+                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
 
-                #     self.set_color()
-                #     return
-                # else:
-                #     pass
-                self.camera.take_picture("test.bmp")
-                return
+                    if self.color_visible() == None:
+                        print("Unable to recognize color")
+                        return
+                    else:
+                        color_index, _ = self.color_visible()
+
+                        if color_index == 0:
+                            self.color = "BLUE"
+                        elif color_index == 1:
+                            self.color = "RED"
+                        elif color_index == 2:
+                            self.color = "GREEN"
+                        elif color_index == 3:
+                            self.color = "TURQUOISE"
+                        elif color_index == 4:
+                            self.color = "YELLOW"
+                        else:
+                            self.color = "VIOLET"
+
+                        self.color_index = color_index
+
+                        self.acquired_color = True
+                    
+                    time.sleep(1)
+                    angle_to_turn = self.odom_data.angle_360 + 180
+                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+                else:
+                    angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+                    angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+                    difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+                    difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
+
+                    angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+                    if self.color_visible() == None or self.color_visible()[0] != self.color_index or (self.color_visible()[0] == self.color_index and angle_difference < ANGLE_DETECTION_THRESHOLD):
+                        if not len(self.lidar_data.get_space_array()) == 0:
+                            self.turn_to_angle_360_system(self.choose_angle())
+                        else:
+                            angle_to_turn = self.odom_data.angle_360 + 180
+                            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+
+                        self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
+
+                        while self.can_move_forward():
+                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            if self.ctrl_c:
+                                break
+                        
+                        if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(REVERSE_TIME)
+                        elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.5*REVERSE_TIME)
+                        else:
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.2*REVERSE_TIME)
+                        self.publish_velocity.publish_velocity()
+
 
 
                 self.rate.sleep()
@@ -269,15 +394,64 @@ class Lidar_data():
         self.ranges = scan_data.ranges
         self.initial_data_loaded = True
 
-class Take_photo():
+    def get_space_array(self):
+        previous_inf = False
+
+        angle_before_first_obstacle = 0
+        first_angle_set = False
+
+        angle_array = []
+        beginning_of_current_space = None
+
+        for i, _range in enumerate(self.ranges):
+            if _range > RANGE_THRESHOLD:
+                if not first_angle_set:
+                    angle_before_first_obstacle += 1
+
+                if not previous_inf:
+                    beginning_of_current_space = i
+                    previous_inf = True
+
+            else:
+                if not first_angle_set:
+                    first_angle_set = True
+                    previous_inf = False
+
+                if previous_inf and first_angle_set:
+                    mid_angle = beginning_of_current_space + (i - beginning_of_current_space)/2
+                    size_of_angle = i - beginning_of_current_space
+                    
+                    angle_array.append((mid_angle, size_of_angle))
+                    beginning_of_current_space = None
+                
+                if previous_inf:
+                    previous_inf = False
+        
+        if not first_angle_set:
+            return [(0, 360)]
+
+        angle_after_last_obstacle = 0 if beginning_of_current_space == None else 360 - beginning_of_current_space
+
+        first_and_last_angle = angle_after_last_obstacle + angle_before_first_obstacle
+
+        beginning_of_last_angle = 360 - angle_after_last_obstacle
+
+        mid_angle_before_correction = beginning_of_last_angle + first_and_last_angle/2
+
+        mid_angle_of_first_and_last_angle = mid_angle_before_correction - 360 if mid_angle_before_correction >= 360 else mid_angle_before_correction
+        
+        if first_and_last_angle != 0:
+            angle_array.append((mid_angle_of_first_and_last_angle, first_and_last_angle))
+
+        angle_array.sort(key=lambda x: x[1], reverse=True)
+
+        return angle_array
+
+class Camera():
    
     def __init__(self):
         self.cvbridge_interface = CvBridge()
 
-
-
-
-        self.bridge = CvBridge()
         self.image_received = False
        # self.base_image_path = Path("~/catkin_ws/src/team16/")
         #self.base_image_path.mkdir(parents=True, exist_ok=True)
@@ -286,6 +460,7 @@ class Take_photo():
         img_topic = "/camera/rgb/image_raw"
         self.image_sub = rospy.Subscriber(img_topic, Image, self.callback)
 
+        self.image = None
         # Allow up to one second to connection
         rospy.sleep(1)
 
@@ -302,22 +477,13 @@ class Take_photo():
         self.image = cv_image
         self.image_received = True
 
-    def take_picture(self, img_title):
-        base_image_path = Path("\catkin_ws\src\team16\photos")
-        full_image_path = base_image_path.joinpath(img_title)
-        if self.image_received:
-            cv2.imwrite(str(full_image_path), self.image)
-            cv2.imshow("hello", self.image)
-            cv2.waitKey(0)
-
-     
-     
-            
-           
-            
-           
-       
-
+    # def take_picture(self, img_title):
+    #     base_image_path = Path("\catkin_ws\src\team16\photos")
+    #     full_image_path = base_image_path.joinpath(img_title)
+    #     if self.image_received:
+    #         cv2.imwrite(str(full_image_path), self.image)
+    #         cv2.imshow("hello", self.image)
+    #         cv2.waitKey(0)
 
 if __name__ == '__main__':
     try:
