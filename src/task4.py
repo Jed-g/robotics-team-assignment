@@ -56,9 +56,9 @@ class Main():
         self.starting_x = None
         self.starting_y = None
 
-        # Thresholds for ["Blue", "Red", "Green", "Turquoise"]
-        self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100)]
-        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255)]
+        # Thresholds for ["Blue", "Red", "Green", "Turquoise" "Yellow" "Violet"]
+        self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100), (155, 35, 225), (155, 195, 180)]
+        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255), (255, 50,255), (155, 225, 225)]
 
 
     def shutdownhook(self):
@@ -293,8 +293,12 @@ class Main():
                             self.color = "RED"
                         elif color_index == 2:
                             self.color = "GREEN"
-                        else:
+                        elif color_index == 3:
                             self.color = "TURQUOISE"
+                        elif color_index == 4:
+                            self.color = "YELLOW"
+                        else:
+                            self.color = "VIOLET"
 
                         self.color_index = color_index
 
