@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="team16" type="colour_search.py" name="colour_search" output="screen"/>
+</launch>
