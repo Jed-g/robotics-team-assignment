@@ -7,12 +7,13 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from math import inf, pi, sqrt, sin, cos, atan2
 import numpy as np
+import time
 
 FREQUENCY = 10
 LINEAR_VELOCITY = 0.25
-ANGULAR_VELOCITY = 0.4
-RANGE_THRESHOLD = 1.5
-CLEARANCE_THRESHOLD = 0.3
+ANGULAR_VELOCITY = 1.2
+RANGE_THRESHOLD = 2.2
+CLEARANCE_THRESHOLD = 0.32
 FORWARD_STOPPING_THRESHOLD = 0.4
 WALL_PROXIMITY_THRESHOLD = 0.4
 WALL_PROXIMITY_THRESHOLD_PRECISION = 0.05
@@ -23,6 +24,9 @@ CONVEX_CORNER_THRESHOLD = 0.3
 ANGLE_CORRECTION_SPEED = 1
 CONVEX_CORNER_CORRECTION_SPEED = 1
 STOP_TO_CORRECT_ANGLE_THRESHOLD = 10
+REVERSE_TIME = 1.4
+TURN_CORRECTION_SPEED = 0.3
+DISTANCE_FACTOR = 0.1
 
 class Main():
     def __init__(self):
@@ -43,6 +47,7 @@ class Main():
         # self.is_moving_forward = False
         # self.correct_distance_to_wall = False
         # self.wall_too_far = False
+        self.visited_points = []
 
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
@@ -70,6 +75,13 @@ class Main():
         if turn_clockwise:
             initial_angle = self.odom_data.angle_360
 
+            if lin_speed == None:
+                self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+            else:
+                self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+
+            time.sleep(0.6)
+
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 <= initial_angle:
                     if self.ctrl_c:
@@ -77,24 +89,41 @@ class Main():
                         return
                     
                     if lin_speed == None:
-                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+                        self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
                     else:
                         self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
-
+            
             while self.odom_data.angle_360 > angle:
                 if self.ctrl_c:
                         self.publish_velocity.publish_velocity()
                         return
                 
                 if lin_speed == None:
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+                    self.publish_velocity.publish_velocity(0, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
                 else:
                     self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
+
+            while self.odom_data.angle_360 < angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(0, TURN_CORRECTION_SPEED*ANGULAR_VELOCITY if ang_speed == None else TURN_CORRECTION_SPEED*ang_speed)
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed, TURN_CORRECTION_SPEED*ANGULAR_VELOCITY if ang_speed == None else TURN_CORRECTION_SPEED*ang_speed)
 
             self.publish_velocity.publish_velocity()
         else:
             initial_angle = self.odom_data.angle_360
+
+            if lin_speed == None:
+                self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+            else:
+                self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+
+            time.sleep(0.6)
 
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 >= initial_angle:
@@ -103,7 +132,7 @@ class Main():
                         return
                     
                     if lin_speed == None:
-                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+                        self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
                     else:
                         self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
@@ -113,9 +142,19 @@ class Main():
                         return
 
                 if lin_speed == None:
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+                    self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
                 else:
                     self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
+
+            while self.odom_data.angle_360 > angle:
+                if self.ctrl_c:
+                        self.publish_velocity.publish_velocity()
+                        return
+                
+                if lin_speed == None:
+                    self.publish_velocity.publish_velocity(0, TURN_CORRECTION_SPEED*(-ANGULAR_VELOCITY) if ang_speed == None else TURN_CORRECTION_SPEED*(-ang_speed))
+                else:
+                    self.publish_velocity.publish_velocity(lin_speed, TURN_CORRECTION_SPEED*(-ANGULAR_VELOCITY) if ang_speed == None else TURN_CORRECTION_SPEED*(-ang_speed))
 
             self.publish_velocity.publish_velocity()
 
@@ -131,14 +170,14 @@ class Main():
         return array
 
     def can_move_forward(self):
-        data = list(self.lidar_data.ranges[-30:])
-        data.extend(list(self.lidar_data.ranges[:30]))
+        data = list(self.lidar_data.ranges[-35:])
+        data.extend(list(self.lidar_data.ranges[:35]))
 
         if min(data) < CLEARANCE_THRESHOLD:
             return False
 
-        data = list(self.lidar_data.ranges[-5:])
-        data.extend(list(self.lidar_data.ranges[5:]))
+        data = list(self.lidar_data.ranges[-2:])
+        data.extend(list(self.lidar_data.ranges[:2]))
 
         if min(data) < FORWARD_STOPPING_THRESHOLD:
             return False
@@ -228,20 +267,88 @@ class Main():
 
         self.turn_to_angle_360_system(angle_to_turn_corrected, ang_speed=CONVEX_CORNER_CORRECTION_SPEED)
 
+    def choose_angle(self):
+        current_x, current_y = self.odom_data.posx, self.odom_data.posy
+
+        space_array = self.offset_space_array(self.lidar_data.get_space_array())
+
+        mid_angles = list(map(lambda x: x[0], space_array))
+        widths = list(map(lambda x: x[1], space_array))
+
+        visited_points_distance_diff_coefficients = []
+        angle_of_points = []
+
+        for point_x, point_y in self.visited_points:
+            euc_distance = sqrt((current_x - point_x)**2 + (current_y-point_y)**2)
+
+            distance_inverse = 1
+            if euc_distance != 0:
+                distance_inverse = 1/(euc_distance)**DISTANCE_FACTOR
+
+            visited_points_distance_diff_coefficients.append(distance_inverse)
+
+            angle_radians = atan2(point_y - current_y, point_x - current_x)
+            angle_degrees = (angle_radians if angle_radians >= 0 else angle_radians + 2*pi) * 180 / pi
+
+            angle_of_points.append(angle_degrees)
+        
+        correction_factor_of_angles = []
+
+        for i in range(len(mid_angles)):
+            sum_of_correction_factor_of_points = 1
+            for j in range(len(angle_of_points)):
+                difference_clockwise = mid_angles[i] - angle_of_points[j] + 360 if angle_of_points[j] > self.odom_data.angle_360 else mid_angles[i] - angle_of_points[j]
+                difference_anti_clockwise = 360 - mid_angles[i] + angle_of_points[j] if angle_of_points[j] < mid_angles[i] else angle_of_points[j] - mid_angles[i]
+
+                angle_difference = min(difference_clockwise, difference_anti_clockwise)
+                angle_difference_radians = angle_difference * pi/180
+
+                cosine_ang_diff = cos(angle_difference_radians)
+
+                correction_factor_of_point = cosine_ang_diff * visited_points_distance_diff_coefficients[j]
+
+                sum_of_correction_factor_of_points += correction_factor_of_point
+            
+            correction_factor_of_angles.append(1/sum_of_correction_factor_of_points)
+        
+        for i in range(len(widths)):
+            widths[i] *= correction_factor_of_angles[i]
+        
+        zipped = list(zip(mid_angles, widths))
+
+        zipped.sort(key=lambda x: x[1], reverse=True)
+
+        return zipped[0][0]
+        
+
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
-                
-                if self.can_move_forward():
-                    if not self.is_convex_corner():
-                        self.follow_left_wall()
-                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                    else:
-                        self.do_turn()
+
+                if not len(self.lidar_data.get_space_array()) == 0:
+                    self.turn_to_angle_360_system(self.choose_angle())
                 else:
-                    self.publish_velocity.publish_velocity()
-                    angle_to_turn = self.odom_data.angle_360 - 1
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
+                    angle_to_turn = self.odom_data.angle_360 + 180
+                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+
+                self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
+
+                while self.can_move_forward():
+                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                    if self.ctrl_c:
+                        break
+                
+                if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(REVERSE_TIME)
+                elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(0.5*REVERSE_TIME)
+                else:
+                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    time.sleep(0.2*REVERSE_TIME)
+                self.publish_velocity.publish_velocity()
 
                 self.rate.sleep()
 
@@ -369,7 +476,7 @@ class Lidar_data():
                     previous_inf = False
         
         if not first_angle_set:
-            return None
+            return [(0, 360)]
 
         angle_after_last_obstacle = 0 if beginning_of_current_space == None else 360 - beginning_of_current_space
 
