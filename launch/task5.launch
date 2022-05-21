@@ -1,7 +1,6 @@
 <launch>
-    <node pkg="team16" type="task3_optimal.py" name="task5" output="screen"/>
-    <arg name="target_colour" default="BLUE"/>
-    <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch" />
-    <node pkg="team16" type="task3_optimal.py" name="conquer" output="screen"
+    <arg name="target_colour" default="blue"/>
+
+    <node pkg="team16" type="task5_new.py" name="conquer" output="screen"
     args="-colour $(arg target_colour)"/>
 </launch>

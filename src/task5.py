@@ -49,6 +49,7 @@ class Main():
         self.odom_data = Odom_data()
         self.lidar_data = Lidar_data()
         self.camera = Camera()
+        self.command_line = CLI_colour()
 
         self.acquired_color = False
         self.color = None
@@ -531,7 +532,8 @@ class CLI_colour():
             help="The name of a colour ")
        
         # obtain the arguments passed to this node from the command-line:
-        self.args = cli.parse_args(rospy.myargv()[1:])
+        self.args = cli.parse_args(rospy.myargv())
+        print(self.args)
 
         self.ctrl_c = False
         rospy.on_shutdown(self.shutdownhook)
