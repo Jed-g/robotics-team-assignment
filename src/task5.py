@@ -473,27 +473,6 @@ class Camera():
 
         waiting_for_image = True
 
-        def show_and_save_image(img, img_name):
-            full_image_path = self.base_image_path.joinpath(f"{img_name}.jpg")
-
-            cv2.imshow(img_name, img)
-            cv2.waitKey(0)
-
-            cv2.imwrite(str(full_image_path), img)
-            print(f"Saved an image to '{full_image_path}'\n"
-                f"image dims = {img.shape[0]}x{img.shape[1]}px\n"
-                f"file size = {full_image_path.stat().st_size} bytes")
-
-        def camera_cb(img_data):
-            global waiting_for_image  
-            try:
-                cv_img = cvbridge_interface.imgmsg_to_cv2(img_data, desired_encoding="bgr8")
-                show_and_save_image(cv_img, img_name = "the_beacon")
-            except CvBridgeError as e:
-                print(e)
-
-            waiting_for_image = False
-
         # Connect image topic
         img_topic = "/camera/rgb/image_raw"
         self.image_sub = rospy.Subscriber(img_topic, Image, self.callback)
@@ -501,6 +480,29 @@ class Camera():
         self.image = None
         # Allow up to one second to connection
         rospy.sleep(1)
+
+    def show_and_save_image(img, img_name):
+        full_image_path = self.base_image_path.joinpath(f"{img_name}.jpg")
+
+        cv2.imshow(img_name, img)
+        cv2.waitKey(0)
+
+        cv2.imwrite(str(full_image_path), img)
+        print(f"Saved an image to '{full_image_path}'\n"
+            f"image dims = {img.shape[0]}x{img.shape[1]}px\n"
+            f"file size = {full_image_path.stat().st_size} bytes")
+
+    def camera_cb(img_data):
+        global waiting_for_image  
+        try:
+            cv_img = cvbridge_interface.imgmsg_to_cv2(img_data, desired_encoding="bgr8")
+            show_and_save_image(cv_img, img_name = "the_beacon")
+        except CvBridgeError as e:
+            print(e)
+
+        waiting_for_image = False
+
+        
 
 class Map_saver():
         map_path = "~/catkin_ws/src/team16/maps/task5_map"

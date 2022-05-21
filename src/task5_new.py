@@ -17,23 +17,22 @@ from sensor_msgs.msg import Image
 from pathlib import Path
 
 FREQUENCY = 10
-LINEAR_VELOCITY = 0.35
+LINEAR_VELOCITY = 0.25
 ANGULAR_VELOCITY = 0.8
 TURN_CORRECTION_SPEED = 0.3
-COLOR_THRESHOLD_VALUE = 250
+COLOR_THRESHOLD_VALUE = 150
 ANGLE_DETECTION_THRESHOLD = 40
 DISTANCE_FROM_START_THRESHOLD = 2
-RANGE_THRESHOLD = 1.5
-DISTANCE_FACTOR = 0.2
+RANGE_THRESHOLD = 1.2
+DISTANCE_FACTOR = 0.1
 REVERSE_TIME = 1.6
 HOMING_PRECISION = 0.1
 CLEARANCE_THRESHOLD = 0.32
-FORWARD_STOPPING_THRESHOLD = 0.34
-HOMING_THRESHOLD = 0.45
+FORWARD_STOPPING_THRESHOLD = 0.32
+HOMING_THRESHOLD = 150
 
 class Main():
-    def __init__(self):
-        
+    def __init__(self):        
 
         self.node_name = "conquer"
 
@@ -65,6 +64,7 @@ class Main():
             self.color_index = 0
 
         self.target_found = False
+        self.picture_taken = False
 
         self.visited_points = []
 
@@ -84,6 +84,39 @@ class Main():
         
         return False
 
+    def is_target_close_enough(self):
+        if not self.camera.image_received:
+            return None
+
+        cv_img = self.camera.image
+        
+        height, width, _ = cv_img.shape
+        crop_width = width
+        crop_height = 400
+        crop_x = int((width/2) - (crop_width/2))
+        crop_y = int(height/2 + 200)
+
+        crop_img = cv_img[crop_y:crop_y+crop_height, crop_x:crop_x+crop_width]
+        hsv_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
+
+        moments = []
+
+        for i in range(len(self.lower)):
+            moments.append(cv2.moments(cv2.inRange(hsv_img, self.lower[i], self.upper[i])))
+     
+        index_of_best_matching = -1
+        highest_matching_color_value = 0
+
+        for i, v in enumerate(moments):
+            if v["m00"] > highest_matching_color_value:
+                highest_matching_color_value = v["m00"]
+                index_of_best_matching = i
+
+        if index_of_best_matching == -1 or moments[index_of_best_matching]["m00"] < COLOR_THRESHOLD_VALUE:
+            return False
+
+        return moments[index_of_best_matching]["m00"] > HOMING_THRESHOLD
+
     def color_visible(self):
         
         if not self.camera.image_received:
@@ -93,7 +126,7 @@ class Main():
         
         height, width, _ = cv_img.shape
         crop_width = width
-        crop_height = 400
+        crop_height = height
         crop_x = int((width/2) - (crop_width/2))
         crop_y = int((height/2) - (crop_height/2))
 
@@ -314,12 +347,162 @@ class Main():
 
         return True
 
+    def do_360_and_scan(self):
+        initial_angle = self.odom_data.angle_360
+
+        self.publish_velocity.publish_velocity(0, ANGULAR_VELOCITY)
+
+        time.sleep(1.5)
+
+        while abs(self.odom_data.angle_360 - initial_angle) > 5:
+            if self.check_if_target_visible():
+                self.publish_velocity.publish_velocity()
+                return True
+        
+        self.publish_velocity.publish_velocity()
+        return False
+
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
-                time.sleep(3)
-                self.camera.take_picture(self.camera.cv_image, img_name = "the_beacon")
-                return
+                if not self.target_found:
+
+                    if not self.check_if_target_visible() or self.picture_taken:
+                        if not len(self.lidar_data.get_space_array()) == 0:
+                            self.turn_to_angle_360_system(self.choose_angle(), ignore_color=self.picture_taken)
+                        else:
+                            angle_to_turn = self.odom_data.angle_360 + 180
+                            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=self.picture_taken)
+
+                        self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
+
+                        if self.check_if_target_visible() and not self.picture_taken:
+                            self.publish_velocity.publish_velocity()
+                        else:
+                            while self.can_move_forward():
+                                self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+
+                                if self.ctrl_c or (self.check_if_target_visible() and not self.picture_taken):
+                                    self.publish_velocity.publish_velocity()
+                                    break
+                        
+                        if self.check_if_target_visible() and not self.picture_taken:
+                            self.publish_velocity.publish_velocity()
+                            pass
+                        
+                        elif self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(REVERSE_TIME)
+                        elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.5*REVERSE_TIME)
+                        else:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.2*REVERSE_TIME)
+                        self.publish_velocity.publish_velocity()
+                    else:
+                        print("TARGET DETECTED: Beaconing initiated.")
+                        self.publish_velocity.publish_velocity()
+                        self.target_found = True
+                        continue
+                else:
+                    #Homing
+                    # _, angular_vel = self.color_visible()
+
+                    # while abs(angular_vel) > HOMING_PRECISION:
+                    #     _, angular_vel = self.color_visible()
+                    #     self.publish_velocity.publish_velocity(0, angular_vel)
+
+                    # while self.can_move_forward():
+                    #     _, angular_vel = self.color_visible()
+                    #     self.publish_velocity.publish_velocity(LINEAR_VELOCITY, angular_vel)
+
+                    # self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    # time.sleep(0.6)
+
+                    # if not self.is_target_close_enough():
+                    #     # self.target_found = False
+
+                    #     left_avg = sum(self.lidar_data.ranges[:60])/60
+                    #     right_avg = sum(self.lidar_data.ranges[-60:])/60
+
+                    #     if left_avg > right_avg:
+
+                    #         angle_to_turn = self.odom_data.angle_360 + 70
+                    #         self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=True)
+                    #         while self.can_move_forward():
+                    #             self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            
+                    #         if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(REVERSE_TIME)
+                    #         elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.5*REVERSE_TIME)
+                    #         else:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.2*REVERSE_TIME)
+                    #         self.publish_velocity.publish_velocity()
+
+                    #     else:
+                    #         angle_to_turn = self.odom_data.angle_360 - 70
+                    #         self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else angle_to_turn + 360, ignore_color=True)
+                    #         while self.can_move_forward():
+                    #             self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            
+                    #         if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(REVERSE_TIME)
+                    #         elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.5*REVERSE_TIME)
+                    #         else:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.2*REVERSE_TIME)
+                    #         self.publish_velocity.publish_velocity()
+
+                    #     if not self.do_360_and_scan():
+                    #         self.target_found = False
+                        
+                    # else:
+                    #     self.do_360_and_scan()
+
+                    #     _, angular_vel = self.color_visible()
+
+                    #     while abs(angular_vel) > HOMING_PRECISION:
+                    #         _, angular_vel = self.color_visible()
+                    #         self.publish_velocity.publish_velocity(0, angular_vel)
+
+                    _, angular_vel = self.color_visible()
+
+                    while abs(angular_vel) > HOMING_PRECISION:
+                        _, angular_vel = self.color_visible()
+                        self.publish_velocity.publish_velocity(0, angular_vel)
+
+                    self.publish_velocity.publish_velocity()
+                    #Take picture
+                    print("taken picture")
+                    self.picture_taken = True
+                    self.target_found = False
+
 
 class Odom_data():
 
@@ -470,10 +653,9 @@ class Camera():
             print(f"Obtained an image of height {height}px and width {width}px.")
             self.waiting_for_image = False
 
-    cv2.destroyAllWindows()
 if __name__ == '__main__':
-        try:
-            main_instance = Main()
-            main_instance.main_loop()
-        except rospy.ROSInterruptException:
-            pass
+    try:
+        main_instance = Main()
+        main_instance.main_loop()
+    except rospy.ROSInterruptException:
+        pass
