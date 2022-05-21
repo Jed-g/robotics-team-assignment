@@ -24,16 +24,15 @@ COLOR_THRESHOLD_VALUE = 150
 ANGLE_DETECTION_THRESHOLD = 40
 DISTANCE_FROM_START_THRESHOLD = 2
 RANGE_THRESHOLD = 1.2
-DISTANCE_FACTOR = 0.2
+DISTANCE_FACTOR = 0.1
 REVERSE_TIME = 1.6
 HOMING_PRECISION = 0.1
 CLEARANCE_THRESHOLD = 0.32
-FORWARD_STOPPING_THRESHOLD = 0.34
-HOMING_THRESHOLD = 700
+FORWARD_STOPPING_THRESHOLD = 0.32
+HOMING_THRESHOLD = 150
 
 class Main():
-    def __init__(self):
-        
+    def __init__(self):        
 
         self.node_name = "explore"
 
@@ -127,9 +126,9 @@ class Main():
         
         height, width, _ = cv_img.shape
         crop_width = width
-        crop_height = 400
+        crop_height = height
         crop_x = int((width/2) - (crop_width/2))
-        crop_y = int(height/2 + 200)
+        crop_y = int((height/2) - (crop_height/2))
 
         crop_img = cv_img[crop_y:crop_y+crop_height, crop_x:crop_x+crop_width]
         hsv_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
@@ -414,78 +413,95 @@ class Main():
                         continue
                 else:
                     #Homing
+                    # _, angular_vel = self.color_visible()
+
+                    # while abs(angular_vel) > HOMING_PRECISION:
+                    #     _, angular_vel = self.color_visible()
+                    #     self.publish_velocity.publish_velocity(0, angular_vel)
+
+                    # while self.can_move_forward():
+                    #     _, angular_vel = self.color_visible()
+                    #     self.publish_velocity.publish_velocity(LINEAR_VELOCITY, angular_vel)
+
+                    # self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    # time.sleep(0.6)
+
+                    # if not self.is_target_close_enough():
+                    #     # self.target_found = False
+
+                    #     left_avg = sum(self.lidar_data.ranges[:60])/60
+                    #     right_avg = sum(self.lidar_data.ranges[-60:])/60
+
+                    #     if left_avg > right_avg:
+
+                    #         angle_to_turn = self.odom_data.angle_360 + 70
+                    #         self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=True)
+                    #         while self.can_move_forward():
+                    #             self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            
+                    #         if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(REVERSE_TIME)
+                    #         elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.5*REVERSE_TIME)
+                    #         else:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.2*REVERSE_TIME)
+                    #         self.publish_velocity.publish_velocity()
+
+                    #     else:
+                    #         angle_to_turn = self.odom_data.angle_360 - 70
+                    #         self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else angle_to_turn + 360, ignore_color=True)
+                    #         while self.can_move_forward():
+                    #             self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                            
+                    #         if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(REVERSE_TIME)
+                    #         elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.5*REVERSE_TIME)
+                    #         else:
+                    #             self.publish_velocity.publish_velocity()
+                    #             time.sleep(1)
+                    #             self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                    #             time.sleep(0.2*REVERSE_TIME)
+                    #         self.publish_velocity.publish_velocity()
+
+                    #     if not self.do_360_and_scan():
+                    #         self.target_found = False
+                        
+                    # else:
+                    #     self.do_360_and_scan()
+
+                    #     _, angular_vel = self.color_visible()
+
+                    #     while abs(angular_vel) > HOMING_PRECISION:
+                    #         _, angular_vel = self.color_visible()
+                    #         self.publish_velocity.publish_velocity(0, angular_vel)
+
                     _, angular_vel = self.color_visible()
 
                     while abs(angular_vel) > HOMING_PRECISION:
                         _, angular_vel = self.color_visible()
                         self.publish_velocity.publish_velocity(0, angular_vel)
 
-                    while self.can_move_forward():
-                        _, angular_vel = self.color_visible()
-                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, angular_vel)
-
-                    if not self.is_target_close_enough:
-                        # self.target_found = False
-
-                        left_avg = sum(self.lidar_data.ranges[:60])/60
-                        right_avg = sum(self.lidar_data.ranges[-60:])/60
-
-                        if left_avg > right_avg:
-
-                            angle_to_turn = self.odom_data.angle_360 + 70
-                            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=True)
-                            while self.can_move_forward():
-                                self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                            
-                            if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
-                                self.publish_velocity.publish_velocity()
-                                time.sleep(1)
-                                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                                time.sleep(REVERSE_TIME)
-                            elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
-                                self.publish_velocity.publish_velocity()
-                                time.sleep(1)
-                                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                                time.sleep(0.5*REVERSE_TIME)
-                            else:
-                                self.publish_velocity.publish_velocity()
-                                time.sleep(1)
-                                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                                time.sleep(0.2*REVERSE_TIME)
-                            self.publish_velocity.publish_velocity()
-
-                        else:
-                            angle_to_turn = self.odom_data.angle_360 - 70
-                            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else angle_to_turn + 360, ignore_color=True)
-                            while self.can_move_forward():
-                                self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                            
-                            if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
-                                self.publish_velocity.publish_velocity()
-                                time.sleep(1)
-                                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                                time.sleep(REVERSE_TIME)
-                            elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
-                                self.publish_velocity.publish_velocity()
-                                time.sleep(1)
-                                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                                time.sleep(0.5*REVERSE_TIME)
-                            else:
-                                self.publish_velocity.publish_velocity()
-                                time.sleep(1)
-                                self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                                time.sleep(0.2*REVERSE_TIME)
-                            self.publish_velocity.publish_velocity()
-
-                        if not self.do_360_and_scan():
-                            self.target_found = False
-                        
-                    else:
-                        self.publish_velocity.publish_velocity()
-                        #Take picture
-                        print("taken picture")
-                        self.picture_taken = True
-                        self.target_found = False
+                    self.publish_velocity.publish_velocity()
+                    #Take picture
+                    print("taken picture")
+                    self.picture_taken = True
+                    self.target_found = False
 
 
 class Odom_data():
