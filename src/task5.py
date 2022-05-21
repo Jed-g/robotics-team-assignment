@@ -17,28 +17,25 @@ from sensor_msgs.msg import Image
 from pathlib import Path
 
 FREQUENCY = 10
-LINEAR_VELOCITY = 0.25
-ANGULAR_VELOCITY = 1.2
-RANGE_THRESHOLD = 2.2
-CLEARANCE_THRESHOLD = 0.32
-FORWARD_STOPPING_THRESHOLD = 0.4
-WALL_PROXIMITY_THRESHOLD = 0.4
-WALL_PROXIMITY_THRESHOLD_PRECISION = 0.05
-MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE = 30
-MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION = 5
-WALL_PARALLEL_THRESHOLD_ANGLE = 5
-CONVEX_CORNER_THRESHOLD = 0.3
-ANGLE_CORRECTION_SPEED = 1
-CONVEX_CORNER_CORRECTION_SPEED = 1
-STOP_TO_CORRECT_ANGLE_THRESHOLD = 10
-REVERSE_TIME = 1.4
+LINEAR_VELOCITY = 0.35
+ANGULAR_VELOCITY = 0.8
 TURN_CORRECTION_SPEED = 0.3
-DISTANCE_FACTOR = 0.1
-
+COLOR_THRESHOLD_VALUE = 250
+ANGLE_DETECTION_THRESHOLD = 40
+DISTANCE_FROM_START_THRESHOLD = 2
+RANGE_THRESHOLD = 1.5
+DISTANCE_FACTOR = 0.2
+REVERSE_TIME = 1.6
+HOMING_PRECISION = 0.1
+CLEARANCE_THRESHOLD = 0.32
+FORWARD_STOPPING_THRESHOLD = 0.34
+HOMING_THRESHOLD = 0.45
 
 class Main():
     def __init__(self):
-        self.node_name = "conquer"
+        
+
+        self.node_name = "explore"
 
         rospy.init_node(self.node_name)
         self.rate = rospy.Rate(FREQUENCY)  # hz
@@ -51,18 +48,29 @@ class Main():
         self.publish_velocity = Publish_velocity()
         self.odom_data = Odom_data()
         self.lidar_data = Lidar_data()
+        self.camera = Camera()
 
-        # self.is_moving_forward = False
-        # self.correct_distance_to_wall = False
-        # self.wall_too_far = False
+        self.acquired_color = False
+        self.color = None
+        self.color_index = None
+        self.target_found = False
+
+        self.starting_x = None
+        self.starting_y = None
+
         self.visited_points = []
+
+        # Thresholds for ["Blue", "Red", "Green", "Turquoise" "Yellow" "Violet"]
+        self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (75, 150, 100), (155, 35, 225), (155, 195, 180)]
+        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (100, 255, 255), (255, 50,255), (255, 225, 225)]
+
 
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
         self.ctrl_c = True
         self.publish_velocity.shutdown()
 
-    def turn_to_angle_360_system(self, angle, lin_speed = None, ang_speed = None):
+    def turn_to_angle_360_system(self, angle, lin_speed = None, ang_speed = None, ignore_color = False):
         self.publish_velocity.publish_velocity()
 
         difference_clockwise = self.odom_data.angle_360 - angle + 360 if angle > self.odom_data.angle_360 else self.odom_data.angle_360 - angle
@@ -88,11 +96,11 @@ class Main():
             else:
                 self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
-            time.sleep(0.6)
+            time.sleep(1)
 
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 <= initial_angle:
-                    if self.ctrl_c:
+                    if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                     
@@ -103,7 +111,7 @@ class Main():
 
             
             while self.odom_data.angle_360 > angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                 
@@ -113,7 +121,7 @@ class Main():
                     self.publish_velocity.publish_velocity(lin_speed, -ANGULAR_VELOCITY if ang_speed == None else -ang_speed)
 
             while self.odom_data.angle_360 < angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                 
@@ -131,11 +139,11 @@ class Main():
             else:
                 self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
-            time.sleep(0.6)
+            time.sleep(1)
 
             if requires_crossing_0_360:
                 while self.odom_data.angle_360 >= initial_angle:
-                    if self.ctrl_c:
+                    if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                     
@@ -145,7 +153,7 @@ class Main():
                         self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
             while self.odom_data.angle_360 < angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
 
@@ -155,7 +163,7 @@ class Main():
                     self.publish_velocity.publish_velocity(lin_speed, ANGULAR_VELOCITY if ang_speed == None else ang_speed)
 
             while self.odom_data.angle_360 > angle:
-                if self.ctrl_c:
+                if self.ctrl_c or (self.check_if_target_visible() and not ignore_color):
                         self.publish_velocity.publish_velocity()
                         return
                 
@@ -166,115 +174,66 @@ class Main():
 
             self.publish_velocity.publish_velocity()
 
-    def offset_space_array(self, array):
-        if array == None:
-            return None
-
-        for i in range(len(array)):
-            offset_angle = array[i][0] + self.odom_data.angle_360
-            corrected_offset_angle = offset_angle - 360 if offset_angle >= 360 else offset_angle
-            array[i] = (corrected_offset_angle, array[i][1])
+    def check_if_target_visible(self):
+        angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+        angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+        difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+        difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
         
-        return array
+        angle_difference = min(difference_clockwise, difference_anti_clockwise)
 
-    def can_move_forward(self):
-        data = list(self.lidar_data.ranges[-35:])
-        data.extend(list(self.lidar_data.ranges[:35]))
-
-        if min(data) < CLEARANCE_THRESHOLD:
-            return False
-
-        data = list(self.lidar_data.ranges[-2:])
-        data.extend(list(self.lidar_data.ranges[:2]))
-
-        if min(data) < FORWARD_STOPPING_THRESHOLD:
-            return False
-
-        return True
-
-    def follow_left_wall(self):
-
-        x_of_points = []
-        y_of_points = []
-
-        for i, v in enumerate(list(self.lidar_data.ranges[15:60])):
-            if v == inf:
-                continue
-
-            if v > 0.7:
-                continue
-
-            angle = (i + 15) * pi / 180
-
-            x_of_points.append(v * cos(angle))
-            y_of_points.append(v * sin(angle))
-
-        if len(x_of_points) == 0 or len(y_of_points) == 0:
-            angle_to_turn = self.odom_data.angle_360 - 1
-            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
-            return
-
-        a, b = np.polyfit(np.array(x_of_points), np.array(y_of_points), 1)
-
-        distance_from_wall = abs(b)/sqrt(a**2+1)
-
-        angle = 180 * atan2(a, 1) / pi
-        # print(angle)
-        # print(distance_from_wall)
-        print(distance_from_wall)
-        if abs(distance_from_wall - WALL_PROXIMITY_THRESHOLD) > WALL_PROXIMITY_THRESHOLD_PRECISION:
-
-            if distance_from_wall - WALL_PROXIMITY_THRESHOLD < 0:
-                if angle < MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE - MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 - ANGLE_CORRECTION_SPEED
-                    
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
-                elif angle > MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE + MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
-                    
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
-                
-            else:
-                if angle > -MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE + MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
-                    
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
-
-                elif angle < -MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE - MAXIMUM_WALL_DISTANCE_CORRECTION_ANGLE_PRECISION:
-                    angle_to_turn = self.odom_data.angle_360 - ANGLE_CORRECTION_SPEED
-                    
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
-
-
-        elif abs(angle) > WALL_PARALLEL_THRESHOLD_ANGLE:
-            turn_clockwise = True
-
-            if a > 0:
-                turn_clockwise = False
-
-            if turn_clockwise:
-                angle_to_turn = self.odom_data.angle_360 - ANGLE_CORRECTION_SPEED
-                self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else 358)
-            else:
-                angle_to_turn = self.odom_data.angle_360 + ANGLE_CORRECTION_SPEED
-                self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else 1)
-
-    def is_convex_corner(self):
-        data = list(self.lidar_data.ranges)[100:80:-1]
-
-        for i in range(len(data)):
-            if i != 0:
-                if data[i-1] - data[i] < -CONVEX_CORNER_THRESHOLD:
-                    return True
+        if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+            return True
         
         return False
 
-    def do_turn(self):
-        angle_to_turn = self.odom_data.angle_360 + 90
-        angle_to_turn_corrected = angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360
+    def color_visible(self):
+        
+        if not self.camera.image_received:
+            return None
 
-        self.turn_to_angle_360_system(angle_to_turn_corrected, ang_speed=CONVEX_CORNER_CORRECTION_SPEED)
+        cv_img = self.camera.image
+        
+        height, width, _ = cv_img.shape
+        crop_width = width
+        crop_height = 400
+        crop_x = int((width/2) - (crop_width/2))
+        crop_y = int((height/2) - (crop_height/2))
 
+        crop_img = cv_img[crop_y:crop_y+crop_height, crop_x:crop_x+crop_width]
+        hsv_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
+
+        moments = []
+
+        for i in range(len(self.lower)):
+            moments.append(cv2.moments(cv2.inRange(hsv_img, self.lower[i], self.upper[i])))
+     
+        index_of_best_matching = -1
+        highest_matching_color_value = 0
+
+        for i, v in enumerate(moments):
+            if v["m00"] > highest_matching_color_value:
+                highest_matching_color_value = v["m00"]
+                index_of_best_matching = i
+
+        if index_of_best_matching == -1 or moments[index_of_best_matching]["m00"] < COLOR_THRESHOLD_VALUE:
+            return -1, 0
+
+        cy = moments[index_of_best_matching]['m10'] / (moments[index_of_best_matching]['m00'] + 1e-5)
+
+        y_error = (crop_width / 2) - cy
+
+        kp = 1.0 / 2000.0
+
+        ang_vel = kp * y_error
+
+        if ang_vel > 1:
+            ang_vel = 1
+        if ang_vel < -1:
+            ang_vel = -1
+        
+        return index_of_best_matching, ang_vel
+    
     def choose_angle(self):
         current_x, current_y = self.odom_data.posx, self.odom_data.posy
 
@@ -327,36 +286,176 @@ class Main():
         zipped.sort(key=lambda x: x[1], reverse=True)
 
         return zipped[0][0]
-        
 
+    def can_move_forward(self):
+        data = list(self.lidar_data.ranges[-50:])
+        data.extend(list(self.lidar_data.ranges[:50]))
+
+        if min(data) < CLEARANCE_THRESHOLD:
+            return False
+
+        data = list(self.lidar_data.ranges[-2:])
+        data.extend(list(self.lidar_data.ranges[:2]))
+
+        if min(data) < FORWARD_STOPPING_THRESHOLD:
+            return False
+
+        return True
+
+    def offset_space_array(self, array):
+        if array == None:
+            return None
+
+        for i in range(len(array)):
+            offset_angle = array[i][0] + self.odom_data.angle_360
+            corrected_offset_angle = offset_angle - 360 if offset_angle >= 360 else offset_angle
+            array[i] = (corrected_offset_angle, array[i][1])
+        
+        return array
+
+    def distance_to_start(self):
+        return sqrt((self.starting_x-self.odom_data.posx)**2+(self.starting_y - self.odom_data.posy)**2)
 
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
 
-                if not len(self.lidar_data.get_space_array()) == 0:
-                    self.turn_to_angle_360_system(self.choose_angle())
-                else:
-                    angle_to_turn = self.odom_data.angle_360 + 180
-                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+                if not self.acquired_color:
+                    self.starting_x = self.odom_data.posx
+                    self.starting_y = self.odom_data.posy
+                    
+                    angle_to_turn = self.odom_data.angle_360 + 160
+                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=True)
 
-                self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
+                    self.color = CLI_colour.args.colour.data
+                    
+                    print(f"SEARCH INITIATED: The target beacon colour is {self.color}.")
 
-                while self.can_move_forward():
-                    self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
-                    if self.ctrl_c:
-                        break
-                
-                if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                    time.sleep(1)
+                    angle_to_turn = self.odom_data.angle_360 - 160
+                    self.turn_to_angle_360_system(angle_to_turn if angle_to_turn >= 0 else angle_to_turn + 360, ignore_color=True)
+
+                    while self.can_move_forward():
+                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                    self.publish_velocity.publish_velocity()
+
+                    time.sleep(0.5)
+
                     self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                    time.sleep(REVERSE_TIME)
-                elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
-                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                    time.sleep(0.5*REVERSE_TIME)
+                    time.sleep(0.5)
+                    self.publish_velocity.publish_velocity()
+
+
+                elif not self.target_found:
+                    angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+                    angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+                    difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+                    difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
+
+                    angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+                    if self.color_visible()[0] != self.color_index or (self.color_visible()[0] == self.color_index and angle_difference < ANGLE_DETECTION_THRESHOLD) or self.distance_to_start() < DISTANCE_FROM_START_THRESHOLD:
+                        if not len(self.lidar_data.get_space_array()) == 0:
+                            self.turn_to_angle_360_system(self.choose_angle())
+                        else:
+                            angle_to_turn = self.odom_data.angle_360 + 180
+                            self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360)
+
+                        self.visited_points.append((self.odom_data.posx, self.odom_data.posy))
+
+                        angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+                        angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+                        difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+                        difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
+                        
+                        angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+                        if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                            self.publish_velocity.publish_velocity()
+                        else:
+                            while self.can_move_forward():
+                                self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+
+                                angle_starting_pos_radians = atan2(self.starting_y-self.odom_data.posy, self.starting_x-self.odom_data.posx)
+                                angle_degrees = (angle_starting_pos_radians if angle_starting_pos_radians >= 0 else angle_starting_pos_radians + 2*pi) * 180 / pi
+                                difference_clockwise = self.odom_data.angle_360 - angle_degrees + 360 if angle_degrees > self.odom_data.angle_360 else self.odom_data.angle_360 - angle_degrees
+                                difference_anti_clockwise = 360 - self.odom_data.angle_360 + angle_degrees if angle_degrees < self.odom_data.angle_360 else angle_degrees - self.odom_data.angle_360
+
+                                angle_difference = min(difference_clockwise, difference_anti_clockwise)
+
+                                if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                                    self.publish_velocity.publish_velocity()
+                                    break
+
+                                if self.ctrl_c:
+                                    break
+                        
+                        if self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                            pass
+
+                        elif self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(REVERSE_TIME)
+                        elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.5*REVERSE_TIME)
+                        else:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.2*REVERSE_TIME)
+                        self.publish_velocity.publish_velocity()
+
+                    elif self.color_visible()[0] == self.color_index and angle_difference > ANGLE_DETECTION_THRESHOLD and self.distance_to_start() > DISTANCE_FROM_START_THRESHOLD:
+                        print("TARGET DETECTED: Beaconing initiated.")
+                        self.target_found = True
+                        continue
+
                 else:
-                    self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
-                    time.sleep(0.2*REVERSE_TIME)
-                self.publish_velocity.publish_velocity()
+                    _, angular_vel = self.color_visible()
+
+                    while abs(angular_vel) > HOMING_PRECISION:
+                        _, angular_vel = self.color_visible()
+                        self.publish_velocity.publish_velocity(0, angular_vel)
+
+                    while self.can_move_forward():
+                        _, angular_vel = self.color_visible()
+                        self.publish_velocity.publish_velocity(LINEAR_VELOCITY, angular_vel)
+
+                    if self.lidar_data.ranges[0] > HOMING_THRESHOLD:
+                        self.target_found = False
+                        angle_to_turn = self.odom_data.angle_360 + 160
+                        self.turn_to_angle_360_system(angle_to_turn if angle_to_turn < 360 else angle_to_turn - 360, ignore_color=True)
+                        self.publish_velocity.publish_velocity()
+                        time.sleep(1)
+
+                        while self.can_move_forward():
+                            self.publish_velocity.publish_velocity(LINEAR_VELOCITY, 0)
+                        
+                        if self.lidar_data.ranges[180] > 0.7 and self.lidar_data.ranges[130] > 0.7 and self.lidar_data.ranges[230] > 0.7:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(REVERSE_TIME)
+                        elif self.lidar_data.ranges[180] > 0.4 and self.lidar_data.ranges[130] > 0.4 and self.lidar_data.ranges[230] > 0.4:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.5*REVERSE_TIME)
+                        else:
+                            self.publish_velocity.publish_velocity()
+                            time.sleep(1)
+                            self.publish_velocity.publish_velocity(-LINEAR_VELOCITY, 0)
+                            time.sleep(0.2*REVERSE_TIME)
+                        self.publish_velocity.publish_velocity()
+
+                    else:
+                        print("BEACONING COMPLETE: The robot has now stopped.")
+                        return
 
                 self.rate.sleep()
 
@@ -429,7 +528,7 @@ class CLI_colour():
         cli = argparse.ArgumentParser(description=f"Command-line interface for the '{self.node_name}' node.")
         cli.add_argument("-colour", metavar="COL", type=String,
             default="Blue", 
-            help="The name of a colour (for example)")
+            help="The name of a colour ")
        
         # obtain the arguments passed to this node from the command-line:
         self.args = cli.parse_args(rospy.myargv()[1:])
