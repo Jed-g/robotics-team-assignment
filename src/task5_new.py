@@ -27,8 +27,8 @@ RANGE_THRESHOLD = 1.2
 DISTANCE_FACTOR = 0.1
 REVERSE_TIME = 1.6
 HOMING_PRECISION = 0.1
-CLEARANCE_THRESHOLD = 0.32
-FORWARD_STOPPING_THRESHOLD = 0.32
+CLEARANCE_THRESHOLD = 0.3
+FORWARD_STOPPING_THRESHOLD = 0.30
 HOMING_THRESHOLD = 150
 
 base_image_path = Path("/home/student/catkin_ws/src/team16/snaps")
@@ -77,8 +77,8 @@ class Main():
         self.visited_points = []
 
         # Thresholds for ["Blue", "Red", "Green", "Yellow"]
-        self.lower = [(115, 224, 100), (0, 185, 100), (25, 150, 100), (155, 35, 225)]
-        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (255, 50,255)]
+        self.lower = [(115, 224, 100), (0, 185, 100), (35, 150, 100), (25, 150, 100)]
+        self.upper = [(130, 255, 255), (10, 255, 255), (70, 255, 255), (33, 255, 255)]
 
     def shutdownhook(self):
         print(f"Stopping the '{self.node_name}' node at: {rospy.get_time()}")
@@ -636,7 +636,7 @@ class Camera():
         #self.base_image_path.mkdir(parents=True, exist_ok=True)
 
         # Connect image topic
-        img_topic = "/camera/rgb/image_raw"
+        img_topic = "/camera/color/control"
         self.image_sub = rospy.Subscriber(img_topic, Image, self.callback)
         
 
