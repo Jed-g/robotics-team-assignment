@@ -1,6 +1,9 @@
 <launch>
+    <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch">
+        <arg name="slam_methods" value="gmapping"/>
+        <arg name="open_rviz" value="false"/>
+    </include>
     <arg name="target_colour" default="blue"/>
-    <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch" />
     <node pkg="team16" type="task5_new.py" name="conquer" output="screen"
     args="-colour $(arg target_colour)"/>
 </launch>

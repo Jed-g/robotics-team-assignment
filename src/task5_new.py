@@ -34,8 +34,9 @@ HOMING_THRESHOLD = 150
 base_image_path = Path("/home/student/catkin_ws/src/team16/snaps")
 base_image_path.mkdir(parents=True, exist_ok=True)
 
-map_path = Path("/home/student/catkin_ws/src/team16/maps/task5_map")
+map_path = Path("/home/student/catkin_ws/src/team16/maps")
 map_path.mkdir(parents=True, exist_ok=True)
+map_path = Path("/home/student/catkin_ws/src/team16/maps/task5_map")
 
 class Main():
     def __init__(self):        
@@ -372,6 +373,9 @@ class Main():
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
+
+                self.map_saver.save_map()
+
                 if not self.target_found:
 
                     if not self.check_if_target_visible() or self.picture_taken:
@@ -672,7 +676,7 @@ class Map_saver():
 
     def save_map(self):
 
-        rospy.init_node("map_getter", anonymous=True)
+        # rospy.init_node("map_getter", anonymous=True)
 
         launch = roslaunch.scriptapi.ROSLaunch()
         launch.start()
