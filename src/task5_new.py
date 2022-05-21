@@ -34,6 +34,9 @@ HOMING_THRESHOLD = 150
 base_image_path = Path("/home/student/catkin_ws/src/team16/snaps")
 base_image_path.mkdir(parents=True, exist_ok=True)
 
+map_path = Path("/home/student/catkin_ws/src/team16/maps/task5_map")
+map_path.mkdir(parents=True, exist_ok=True)
+
 class Main():
     def __init__(self):        
 
@@ -52,6 +55,7 @@ class Main():
         self.lidar_data = Lidar_data()
         self.command_line = CLI_colour()
         self.camera = Camera()
+        self.map_saver = Map_saver()
 
         self.color = self.command_line.color
         self.color_index = None
@@ -654,6 +658,30 @@ class Camera():
         print(f"Saved an image to '{full_image_path}'\n"
             f"image dims = {self.image.shape[0]}x{self.image.shape[1]}px\n"
             f"file size = {full_image_path.stat().st_size} bytes")
+
+class Map_saver():
+
+    def __init__(self):
+        
+
+        # rospy.init_node("map_getter", anonymous=True)
+
+        # launch = roslaunch.scriptapi.ROSLaunch()
+        # launch.start()
+        pass
+
+    def save_map(self):
+
+        rospy.init_node("map_getter", anonymous=True)
+
+        launch = roslaunch.scriptapi.ROSLaunch()
+        launch.start()
+
+        print(f"Saving map at time: {rospy.get_time()}...")
+        node = roslaunch.core.Node(package="map_server",
+                                node_type="map_saver",
+                                args=f"-f {map_path}")
+        process = launch.launch(node)
 
 if __name__ == '__main__':
     try:
