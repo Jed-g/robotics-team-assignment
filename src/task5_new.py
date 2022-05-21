@@ -35,7 +35,7 @@ class Main():
     def __init__(self):
         
 
-        self.node_name = "explore"
+        self.node_name = "conquer"
 
         rospy.init_node(self.node_name)
         self.rate = rospy.Rate(FREQUENCY)  # hz
@@ -317,7 +317,9 @@ class Main():
     def main_loop(self):
         while not self.ctrl_c:
             if self.odom_data.initial_data_loaded and self.lidar_data.initial_data_loaded:
-                pass
+                time.sleep(3)
+                self.camera.take_picture(self.camera.cv_image, img_name = "the_beacon")
+                return
 
 class Odom_data():
 
@@ -431,40 +433,47 @@ class CLI_colour():
         self.args = cli.parse_args(rospy.myargv()[1:])
         self.color = self.args.colour.data
 
-if __name__ == '__main__':
-    try:
-        main_instance = Main()
-        main_instance.main_loop()
-    except rospy.ROSInterruptException:
-        pass
-
 class Camera():
    
     def __init__(self):
         self.cvbridge_interface = CvBridge()
 
-        self.image_received = False
-       # self.base_image_path = Path("~/catkin_ws/src/team16/")
-        #self.base_image_path.mkdir(parents=True, exist_ok=True)
+        self.waiting_for_image = True
+        self.base_image_path = Path("~/catkin_ws/src/team16/snaps")
+        self.base_image_path.mkdir(parents=True, exist_ok=True)
 
         # Connect image topic
         img_topic = "/camera/rgb/image_raw"
         self.image_sub = rospy.Subscriber(img_topic, Image, self.callback)
-
-        self.image = None
         # Allow up to one second to connection
         rospy.sleep(1)
+        
+    def take_picture(self, img, img_name):
+        self.full_image_path = self.base_image_path.joinpath(f"{img_name}.jpg")
+
+        cv2.imshow(img_name, img)
+        cv2.waitKey(0)
+        print ("trying to save")
+        cv2.imwrite(str(self.full_image_path), img)
+        print(f"Saved an image to '{self.full_image_path}'\n"
+            f"image dims = {img.shape[0]}x{img.shape[1]}px\n"
+            f"file size = {self.full_image_path.stat().st_size} bytes")
 
     def callback(self, data):
 
         # Convert image to OpenCV format
+        self.cv_image = self.cvbridge_interface.imgmsg_to_cv2(data, desired_encoding="bgr8")
+        
+        if self.waiting_for_image == True:
+            height, width, channels = self.cv_image.shape
+
+            print(f"Obtained an image of height {height}px and width {width}px.")
+            self.waiting_for_image = False
+
+    cv2.destroyAllWindows()
+if __name__ == '__main__':
         try:
-            cv_image = self.cvbridge_interface.imgmsg_to_cv2(data, "bgr8")
-        except CvBridgeError as e:
-            print(e)
-
-        self.image = cv_image
-        self.image_received = True
-
-    def take_picture(self):
-        pass
+            main_instance = Main()
+            main_instance.main_loop()
+        except rospy.ROSInterruptException:
+            pass
