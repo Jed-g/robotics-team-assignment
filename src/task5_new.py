@@ -31,10 +31,13 @@ CLEARANCE_THRESHOLD = 0.32
 FORWARD_STOPPING_THRESHOLD = 0.32
 HOMING_THRESHOLD = 150
 
+base_image_path = Path("/home/student/catkin_ws/src/team16/snaps")
+base_image_path.mkdir(parents=True, exist_ok=True)
+
 class Main():
     def __init__(self):        
 
-        self.node_name = "conquer"
+        self.node_name = "explore"
 
         rospy.init_node(self.node_name)
         self.rate = rospy.Rate(FREQUENCY)  # hz
@@ -407,7 +410,7 @@ class Main():
                             time.sleep(0.2*REVERSE_TIME)
                         self.publish_velocity.publish_velocity()
                     else:
-                        print("TARGET DETECTED: Beaconing initiated.")
+                        # print("TARGET DETECTED: Beaconing initiated.")
                         self.publish_velocity.publish_velocity()
                         self.target_found = True
                         continue
@@ -498,8 +501,7 @@ class Main():
                         self.publish_velocity.publish_velocity(0, angular_vel)
 
                     self.publish_velocity.publish_velocity()
-                    #Take picture
-                    print("taken picture")
+                    self.camera.take_picture("the_beacon")
                     self.picture_taken = True
                     self.target_found = False
 
@@ -621,37 +623,37 @@ class Camera():
     def __init__(self):
         self.cvbridge_interface = CvBridge()
 
-        self.waiting_for_image = True
-        self.base_image_path = Path("~/catkin_ws/src/team16/snaps")
-        self.base_image_path.mkdir(parents=True, exist_ok=True)
+        self.image_received = False
+       # self.base_image_path = Path("~/catkin_ws/src/team16/")
+        #self.base_image_path.mkdir(parents=True, exist_ok=True)
 
         # Connect image topic
         img_topic = "/camera/rgb/image_raw"
         self.image_sub = rospy.Subscriber(img_topic, Image, self.callback)
+        
+
+        self.image = None
         # Allow up to one second to connection
         rospy.sleep(1)
-        
-    def take_picture(self, img, img_name):
-        self.full_image_path = self.base_image_path.joinpath(f"{img_name}.jpg")
-
-        cv2.imshow(img_name, img)
-        cv2.waitKey(0)
-        print ("trying to save")
-        cv2.imwrite(str(self.full_image_path), img)
-        print(f"Saved an image to '{self.full_image_path}'\n"
-            f"image dims = {img.shape[0]}x{img.shape[1]}px\n"
-            f"file size = {self.full_image_path.stat().st_size} bytes")
 
     def callback(self, data):
 
         # Convert image to OpenCV format
-        self.cv_image = self.cvbridge_interface.imgmsg_to_cv2(data, desired_encoding="bgr8")
-        
-        if self.waiting_for_image == True:
-            height, width, channels = self.cv_image.shape
+        try:
+            cv_image = self.cvbridge_interface.imgmsg_to_cv2(data, "bgr8")
+        except CvBridgeError as e:
+            print(e)
 
-            print(f"Obtained an image of height {height}px and width {width}px.")
-            self.waiting_for_image = False
+        self.image = cv_image
+        self.image_received = True
+
+    def take_picture(self, img_name):
+        full_image_path = base_image_path.joinpath(f"{img_name}.jpg")
+
+        cv2.imwrite(str(full_image_path), self.image)
+        print(f"Saved an image to '{full_image_path}'\n"
+            f"image dims = {self.image.shape[0]}x{self.image.shape[1]}px\n"
+            f"file size = {full_image_path.stat().st_size} bytes")
 
 if __name__ == '__main__':
     try:
