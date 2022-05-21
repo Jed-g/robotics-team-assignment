@@ -1,9 +1,6 @@
 <launch>
     <arg name="target_colour" default="blue"/>
-<<<<<<< HEAD
-=======
-    
->>>>>>> 47c79b264f8a56e42623fca7594d09f117666b29
+    <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch" />
     <node pkg="team16" type="task5_new.py" name="conquer" output="screen"
     args="-colour $(arg target_colour)"/>
 </launch>
